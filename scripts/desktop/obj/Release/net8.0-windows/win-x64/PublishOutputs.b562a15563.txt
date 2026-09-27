@@ -1,0 +1,4 @@
+D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\publish-v1.1.29\Microsoft.Web.WebView2.Core.xml
+D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\publish-v1.1.29\Microsoft.Web.WebView2.WinForms.xml
+D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\publish-v1.1.29\Microsoft.Web.WebView2.Wpf.xml
+D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\publish-v1.1.29\SoundMatic.exe
