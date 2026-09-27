@@ -107,6 +107,30 @@ class PlatformSettingsTest extends TestCase
         $this->assertStringEndsWith('/storage/app/private/automation/downloads', $path);
     }
 
+    public function test_admin_can_save_automatic_run_schedule(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+
+        Livewire::actingAs($admin)
+            ->test(AccountSessions::class)
+            ->set('automaticRunEnabled', true)
+            ->set('automaticRunIntervalMinutes', 30)
+            ->set('automaticRunStartTime', '08:00')
+            ->set('automaticRunEndTime', '22:00')
+            ->call('saveAutomaticRunSettings')
+            ->assertHasNoErrors()
+            ->assertSee('Jadwal otomatis berhasil disimpan');
+
+        $this->assertDatabaseHas('automation_settings', [
+            'automatic_run_enabled' => true,
+            'automatic_run_interval_minutes' => 30,
+            'automatic_run_start_time' => '08:00',
+            'automatic_run_end_time' => '22:00',
+        ]);
+    }
+
     public function test_admin_can_clear_downloaded_release_assets(): void
     {
         Storage::fake('local');

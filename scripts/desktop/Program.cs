@@ -46,7 +46,7 @@ internal static class Program
 
         public MainWindow(string root)
         {
-            this.root = root; Text = "SoundMatic v1.1.50"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = "SoundMatic v1.1.51"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
             FormClosing += (_, _) => ShutdownServices();
@@ -102,6 +102,7 @@ internal static class Program
         private void StartAllServices()
         {
             Start("app", Php(root), $"artisan serve --host=127.0.0.1 --port={AppPort}", root, automationKey);
+            Start("scheduler", Php(root), "artisan schedule:work --no-interaction", root, automationKey);
             StartQueueWorker("release-automation,default", "release-queue-worker.pid", "release-worker.log", "release-worker-error.log");
             StartQueueWorker("status-checks", "status-queue-worker.pid", "status-worker.log", "status-worker-error.log");
             Start("worker", Node(root), "--env-file=.env dist/server.js", Path.Combine(root, "automation-worker"), automationKey);
@@ -183,8 +184,9 @@ internal static class Program
                         || (command.Contains($"127.0.0.1:{AppPort}", StringComparison.OrdinalIgnoreCase) && command.Contains("server.php", StringComparison.OrdinalIgnoreCase));
                     var isQueue = command.Contains("queue:work", StringComparison.OrdinalIgnoreCase)
                         && (command.Contains("release-automation", StringComparison.OrdinalIgnoreCase) || command.Contains("status-checks", StringComparison.OrdinalIgnoreCase));
+                    var isScheduler = command.Contains("schedule:work", StringComparison.OrdinalIgnoreCase);
                     var isWorker = command.Contains("--env-file=.env", StringComparison.OrdinalIgnoreCase) && command.Contains("dist/server.js", StringComparison.OrdinalIgnoreCase);
-                    if (!isApp && !isQueue && !isWorker) continue;
+                    if (!isApp && !isQueue && !isScheduler && !isWorker) continue;
                     try { Process.GetProcessById(Convert.ToInt32(process["ProcessId"])).Kill(true); } catch { }
                 }
             }

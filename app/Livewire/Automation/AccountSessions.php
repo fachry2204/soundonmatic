@@ -12,6 +12,7 @@ use App\Enums\ReleaseJobStatus;
 use App\Exceptions\BrowserWorkerException;
 use App\Exceptions\CredentialsNotConfiguredException;
 use App\Models\AutomationAccount;
+use App\Models\AutomationSetting;
 use App\Services\Automation\OperatorAudit;
 use App\Services\Automation\SessionManager;
 use Illuminate\Support\Facades\Gate;
@@ -36,8 +37,22 @@ final class AccountSessions extends Component
 
     public string $downloadSize = '0 B';
 
+    public bool $automaticRunEnabled = false;
+
+    public int $automaticRunIntervalMinutes = 30;
+
+    public string $automaticRunStartTime = '08:00';
+
+    public string $automaticRunEndTime = '22:00';
+
     public function mount(): void
     {
+        $setting = AutomationSetting::current();
+        $this->automaticRunEnabled = $setting->automatic_run_enabled;
+        $this->automaticRunIntervalMinutes = $setting->automatic_run_interval_minutes;
+        $this->automaticRunStartTime = substr((string) $setting->automatic_run_start_time, 0, 5);
+        $this->automaticRunEndTime = substr((string) $setting->automatic_run_end_time, 0, 5);
+
         foreach (AutomationAccount::all() as $account) {
             try {
                 $this->emails[$account->platform->value] = (string) ($account->email_encrypted ?? '');
@@ -90,6 +105,37 @@ final class AccountSessions extends Component
     {
         $this->saveCredentials($platform);
         $this->refresh($platform, $sessions);
+    }
+
+    public function saveAutomaticRunSettings(): void
+    {
+        Gate::authorize('sessions.manage');
+        $data = validator([
+            'enabled' => $this->automaticRunEnabled,
+            'interval' => $this->automaticRunIntervalMinutes,
+            'start' => $this->automaticRunStartTime,
+            'end' => $this->automaticRunEndTime,
+        ], [
+            'enabled' => ['boolean'],
+            'interval' => ['required', 'integer', 'min:5', 'max:1440'],
+            'start' => ['required', 'date_format:H:i'],
+            'end' => ['required', 'date_format:H:i'],
+        ])->validate();
+
+        AutomationSetting::current()->update([
+            'automatic_run_enabled' => (bool) $data['enabled'],
+            'automatic_run_interval_minutes' => (int) $data['interval'],
+            'automatic_run_start_time' => $data['start'],
+            'automatic_run_end_time' => $data['end'],
+        ]);
+
+        app(OperatorAudit::class)->record('automatic_run_settings_saved', 'Operator updated automatic automation schedule.', context: [
+            'enabled' => (bool) $data['enabled'],
+            'interval_minutes' => (int) $data['interval'],
+            'start_time' => $data['start'],
+            'end_time' => $data['end'],
+        ]);
+        $this->message = 'Jadwal otomatis berhasil disimpan.';
     }
 
     public function clearCredentials(string $platform): void

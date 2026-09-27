@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('soundon:cleanup')->hourly()->withoutOverlapping();
 Schedule::command('soundon:session:health')->everyThirtyMinutes()->withoutOverlapping();
+Schedule::command('soundmatic:auto-run')->everyMinute()->withoutOverlapping();
 if (config('automation.schedule_enabled')) {
     Schedule::command('soundon:process-pending --limit=10')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 }
