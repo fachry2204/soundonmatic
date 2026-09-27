@@ -33,7 +33,7 @@ internal static class Program
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.46", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.47", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };
@@ -90,17 +90,21 @@ internal static class Program
             try
             {
                 var executable = Application.ExecutablePath;
-                var command = $"timeout /T 3 /NOBREAK >NUL & del /F /Q \"{executable}\"";
-                var info = new ProcessStartInfo("cmd.exe")
+                var script = Path.Combine(Path.GetTempPath(), "SoundMatic-cleanup-" + Guid.NewGuid().ToString("N") + ".cmd");
+                File.WriteAllLines(script, new[]
                 {
+                    "@echo off",
+                    "timeout /T 3 /NOBREAK >NUL",
+                    $"del /F /Q \"{executable}\"",
+                    @"del /F /Q ""%~f0""",
+                });
+                Process.Start(new ProcessStartInfo("cmd.exe")
+                {
+                    Arguments = $"/D /C \"\"{script}\"\"",
                     WorkingDirectory = Path.GetTempPath(),
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                };
-                info.ArgumentList.Add("/D");
-                info.ArgumentList.Add("/C");
-                info.ArgumentList.Add(command);
-                Process.Start(info);
+                });
             }
             catch { }
         }

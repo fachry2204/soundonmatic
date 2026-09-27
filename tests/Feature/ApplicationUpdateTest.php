@@ -68,6 +68,8 @@ final class ApplicationUpdateTest extends TestCase
 
         $this->assertStringContainsString('ScheduleSelfDelete();', $source);
         $this->assertStringContainsString('private static void ScheduleSelfDelete()', $source);
+        $this->assertStringContainsString('File.WriteAllLines(script', $source);
+        $this->assertStringContainsString('del /F /Q ""%~f0""', $source);
     }
 
     public function test_update_page_shows_download_progress_and_automatic_flow(): void
