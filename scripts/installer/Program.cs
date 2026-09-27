@@ -33,11 +33,15 @@ internal static class Program
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.52", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.53", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };
         private readonly bool silentUpdate;
+        private static readonly string InstallerLogPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SoundMatic",
+            "installer.log");
 
         public InstallerWindow(bool silentUpdate = false)
         {
@@ -61,14 +65,18 @@ internal static class Program
             var isNewInstallation = !File.Exists(Path.Combine(target, ".env"));
             try
             {
+                Log("Instalasi dimulai. Mode otomatis: " + silentUpdate);
                 Directory.CreateDirectory(temp); Directory.CreateDirectory(target);
                 status.Text = "Menghentikan SoundMatic yang sedang berjalan...";
+                Log(status.Text);
                 await StopRunningApplication(target);
                 status.Text = "Mengekstrak aplikasi...";
+                Log(status.Text);
                 var payload = Path.Combine(temp, "payload.7z"); var sevenZip = Path.Combine(temp, "7z.exe"); var sevenZipLibrary = Path.Combine(temp, "7z.dll");
                 ExtractResource("SoundOnMatic.payload.7z", payload); ExtractResource("SoundOnMatic.7z.exe", sevenZip); ExtractResource("SoundOnMatic.7z.dll", sevenZipLibrary);
                 await Run(sevenZip, $"x -y -o\"{target}\" \"{payload}\"", temp);
                 status.Text = "Menyiapkan database dan akun awal...";
+                Log(status.Text);
                 PrepareConfiguration(target, isNewInstallation);
                 await EnsureHealthyDatabase(target);
                 await Run(Path.Combine(target, "runtime", "php", "php.exe"), "artisan migrate --force --seed", target);
@@ -76,13 +84,31 @@ internal static class Program
                 CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SoundMatic.lnk"), Path.Combine(target, "SoundMatic.exe"), target);
                 CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "SoundMatic.lnk"), Path.Combine(target, "SoundMatic.exe"), target);
                 status.Text = silentUpdate ? "Update selesai." : "Instalasi selesai."; progress.Visible = false;
+                Log(status.Text);
                 if (silentUpdate || MessageBox.Show("SoundMatic berhasil diinstal. Buka sekarang?", "Selesai", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                     Process.Start(new ProcessStartInfo(Path.Combine(target, "SoundMatic.exe")) { WorkingDirectory = target, UseShellExecute = true });
                 ScheduleSelfDelete();
                 Close();
             }
-            catch (Exception error) { progress.Visible = false; install.Enabled = true; status.Text = "Instalasi gagal"; MessageBox.Show(error.Message, "SoundMatic Setup", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception error)
+            {
+                Log("Instalasi gagal: " + error);
+                progress.Visible = false;
+                install.Enabled = true;
+                status.Text = "Instalasi gagal";
+                MessageBox.Show(error.Message + "\n\nLog: " + InstallerLogPath, "SoundMatic Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
             finally { try { Directory.Delete(temp, true); } catch { } }
+        }
+
+        private static void Log(string message)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(InstallerLogPath)!);
+                File.AppendAllText(InstallerLogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
+            }
+            catch { }
         }
 
         private static void ScheduleSelfDelete()

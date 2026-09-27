@@ -72,6 +72,16 @@ final class ApplicationUpdateTest extends TestCase
         $this->assertStringContainsString('del /F /Q ""%~f0""', $source);
     }
 
+    public function test_installer_persists_failure_diagnostics(): void
+    {
+        $source = file_get_contents(base_path('scripts/installer/Program.cs'));
+
+        $this->assertStringContainsString('"SoundMatic",', $source);
+        $this->assertStringContainsString('"installer.log"', $source);
+        $this->assertStringContainsString('Log("Instalasi gagal: " + error);', $source);
+        $this->assertStringContainsString('Log: " + InstallerLogPath', $source);
+    }
+
     public function test_update_page_shows_download_progress_and_automatic_flow(): void
     {
         $this->seed(AccessControlSeeder::class);
