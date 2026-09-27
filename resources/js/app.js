@@ -14,7 +14,6 @@ document.querySelectorAll('[data-vue-navigation]').forEach((element) => {
         notificationsUrl: element.dataset.notificationsUrl,
         releaseStatusUrl: element.dataset.releaseStatusUrl,
         mappingsUrl: element.dataset.mappingsUrl,
-        syncMetadataUrl: element.dataset.syncMetadataUrl,
         sessionsUrl: element.dataset.sessionsUrl,
         updateUrl: element.dataset.updateUrl,
         loginUrl: element.dataset.loginUrl,

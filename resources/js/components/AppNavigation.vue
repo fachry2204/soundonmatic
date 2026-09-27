@@ -12,7 +12,6 @@ const props = defineProps({
     notificationsUrl: String,
     releaseStatusUrl: String,
     mappingsUrl: String,
-    syncMetadataUrl: String,
     sessionsUrl: String,
     updateUrl: String,
     loginUrl: String,
@@ -26,7 +25,6 @@ const items = computed(() => [
     { label: 'Cek Status Rilis', href: props.releaseStatusUrl, icon: 'status', show: true },
     { label: 'Notifikasi', href: props.notificationsUrl, icon: 'bell', badge: props.unreadCount, show: true },
     { label: 'Metadata Mapping', href: props.mappingsUrl, icon: 'map', show: props.canManageMappings },
-    { label: 'Sync Metadata', href: props.syncMetadataUrl, icon: 'sync', show: props.canManageMappings },
     { label: 'Pengaturan Platform', href: props.sessionsUrl, icon: 'settings', show: props.canManageSessions },
     { label: 'Update Aplikasi', href: props.updateUrl, icon: 'update', show: props.canManageSessions },
 ].filter((item) => item.show));
