@@ -597,7 +597,7 @@ async function createKnownSoundOnAlbumDraft(
     await continueWithCurrentReleaseDate(page);
     await setPublisherField(page, "Soundfresh.ID", true);
     await setRadioIfPresent(page, ["What percentage of this track was written or composed by you?"], "100%");
-    await setRadioIfPresent(page, ["Does this track have an existing publishing administrator or publisher?"], "No");
+    await setScopedRadio(page, "Does this track have an existing publishing administrator or publisher?", "No");
     await enableStandardMonetization(
         page,
         resolveSoundOnPreReleaseDate(metadata.pre_release_date, metadata.release_date),
@@ -1092,13 +1092,13 @@ async function dismissVisibleEntityDialogs(page: Page): Promise<void> {
     }
 }
 
-function matchesFieldLabel(candidate: string | null | undefined, label: string): boolean {
+export function matchesFieldLabel(candidate: string | null | undefined, label: string): boolean {
     if (!candidate) return false;
     const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
     const expected = label.toLowerCase().replace(/\s+/g, " ").trim();
     if (!normalized.startsWith(expected)) return false;
     const suffix = normalized.slice(expected.length).trim();
-    return suffix === "" || suffix.startsWith("(");
+    return suffix === "" || suffix.startsWith("(") || suffix.startsWith("*") || suffix.startsWith("required");
 }
 
 export async function setTextField(

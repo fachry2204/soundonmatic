@@ -16,6 +16,7 @@ document.querySelectorAll('[data-vue-navigation]').forEach((element) => {
         mappingsUrl: element.dataset.mappingsUrl,
         syncMetadataUrl: element.dataset.syncMetadataUrl,
         sessionsUrl: element.dataset.sessionsUrl,
+        updateUrl: element.dataset.updateUrl,
         loginUrl: element.dataset.loginUrl,
         logoutUrl: element.dataset.logoutUrl,
         csrfToken: document.querySelector('meta[name="csrf-token"]')?.content,

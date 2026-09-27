@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\LoginController;
 use App\Livewire\Automation\AccountSessions;
+use App\Livewire\Automation\ApplicationUpdate;
 use App\Livewire\Automation\Dashboard;
 use App\Livewire\Automation\MetadataMappings;
 use App\Livewire\Automation\NotificationCenter;
@@ -30,6 +31,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/mappings', MetadataMappings::class)->middleware('permission:mappings.manage')->name('automation.mappings');
     Route::get('/sync-metadata', SyncMetadata::class)->middleware('permission:mappings.manage')->name('automation.sync-metadata');
     Route::get('/sessions', AccountSessions::class)->middleware('permission:sessions.manage')->name('automation.sessions');
+    Route::get('/update', ApplicationUpdate::class)->middleware('permission:sessions.manage')->name('automation.update');
     Route::get('/notifications', NotificationCenter::class)->middleware('permission:automation.view')->name('automation.notifications');
     Route::get('/release-status', ReleaseStatus::class)->middleware('permission:automation.view')->name('automation.release-status');
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');

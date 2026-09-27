@@ -10,7 +10,7 @@ describe('skippable entity failures', () => {
         expect(canSkipEntityError('NETWORK_TIMEOUT')).toBe(false);
     });
 });
-import { contributorCreditsForTrack, contributorDetails, contributorEntries, normalizeArtistMetadata, normalizeLanguage, normalizeSubgenre, preReleaseFieldsPersisted, primaryArtistEntries, resolveSoundOnPreReleaseDate, writerFieldEntries } from "./draft-driver.js";
+import { contributorCreditsForTrack, contributorDetails, contributorEntries, matchesFieldLabel, normalizeArtistMetadata, normalizeLanguage, normalizeSubgenre, preReleaseFieldsPersisted, primaryArtistEntries, resolveSoundOnPreReleaseDate, writerFieldEntries } from "./draft-driver.js";
 
 describe("contributorDetails", () => {
     it("splits comma-separated primary artists into individual entries", () => {
@@ -148,6 +148,15 @@ describe("contributorDetails", () => {
             primary_artist: "Majestic Malay",
             contributors: "Majestic Malay (Tenor Saxophone)",
         })).toEqual([{ name: "Majestic Malay", role: "Tenor Saxophone" }]);
+    });
+});
+
+describe("matchesFieldLabel", () => {
+    it("matches required SoundOn labels that include an asterisk and helper text", () => {
+        expect(matchesFieldLabel(
+            "Does this track have an existing publishing administrator or publisher? * Required field",
+            "Does this track have an existing publishing administrator or publisher?",
+        )).toBe(true);
     });
 });
 

@@ -893,6 +893,25 @@ final class ReleaseStatusTest extends TestCase
                 ]);
             }
 
+            ReleaseJob::query()->create([
+                'automation_run_id' => $run->id,
+                'soundfresh_release_id' => 'SF-EXCEL-SCANNING',
+                'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/excel-scanning',
+                'idempotency_key' => 'status-excel-scanning',
+                'release_title' => 'Rilis Tetap Diekspor Saat Scan',
+                'artist_name' => 'Artis Saat Scan',
+                'status' => 'completed',
+                'checkpoint' => 'draft_saved',
+                'soundfresh_workflow_status' => 'uploading',
+                'soundon_release_status' => 'under_review',
+                'soundon_draft_url' => 'https://soundon.example/scanning',
+                // refreshSoundOnStatuses temporarily clears this while the new
+                // Soundfresh collection is running. Export must retain the last
+                // detected SoundOn status during that window.
+                'soundon_check_status' => null,
+                'metadata_snapshot_json' => ['release_date' => '2026-09-26'],
+            ]);
+
             $component = Livewire::test(ReleaseStatus::class)
                 ->assertSee('Download Rilis Under Review')
                 ->call('downloadUnderReviewReport')
@@ -906,6 +925,7 @@ final class ReleaseStatusTest extends TestCase
             $this->assertStringContainsString('Link SoundOn', $decoded);
             $this->assertStringContainsString('Rilis Hari Ini Excel', $decoded);
             $this->assertStringContainsString('Rilis Terlewat Excel', $decoded);
+            $this->assertStringContainsString('Rilis Tetap Diekspor Saat Scan', $decoded);
             $this->assertStringNotContainsString('Rilis Mendatang', $decoded);
             $this->assertStringNotContainsString('Rilis Sudah Live', $decoded);
         } finally {

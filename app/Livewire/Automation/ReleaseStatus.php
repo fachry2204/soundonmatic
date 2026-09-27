@@ -329,7 +329,8 @@ final class ReleaseStatus extends Component
     {
         $today = CarbonImmutable::now($this->releaseTimezone())->startOfDay();
         $jobs = ReleaseJob::query()
-            ->whereNotNull('soundon_check_status')
+            // Keep the last detected SoundOn status exportable while a new
+            // bulk scan temporarily sets soundon_check_status to null.
             ->where('soundon_release_status', 'under_review')
             ->get()
             ->filter(function (ReleaseJob $job) use ($today): bool {

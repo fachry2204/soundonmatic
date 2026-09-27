@@ -1,4 +1,4 @@
-param([string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.40.exe'))
+param([string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.42.exe'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $stage = Join-Path $PSScriptRoot 'installer\stage'
@@ -7,9 +7,9 @@ $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
 $sevenZipLibrary = 'C:\Program Files\7-Zip\7z.dll'
 if (!(Test-Path $sevenZip) -or !(Test-Path $sevenZipLibrary)) { throw '7-Zip beserta 7z.dll diperlukan untuk membuat installer.' }
 
-$launcherExe = Join-Path $root 'SoundMatic-v1.1.40-portable.exe'
+$launcherExe = Join-Path $root 'SoundMatic-v1.1.42-portable.exe'
 if (!(Test-Path $launcherExe)) {
-    Write-Host "Launcher $launcherExe belum ada, membangun..."
+    Write-Host "$launcherExe belum ada, membangun..."
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-exe.ps1') -Output $launcherExe
     if (!(Test-Path $launcherExe)) { throw 'Gagal membangun launcher.' }
 }
@@ -35,7 +35,7 @@ if (Test-Path -LiteralPath $hotFile) { Remove-Item -LiteralPath $hotFile -Force 
 Copy-Item (Join-Path $root 'artisan') $stage
 Copy-Item (Join-Path $root 'composer.json') $stage
 Copy-Item (Join-Path $root '.env.install') $stage
-Copy-Item (Join-Path $root 'SoundMatic-v1.1.40-portable.exe') (Join-Path $stage 'SoundMatic.exe')
+Copy-Item $launcherExe (Join-Path $stage 'SoundMatic.exe')
 
 $workerStage = Join-Path $stage 'automation-worker'; New-Item $workerStage -ItemType Directory | Out-Null
 foreach ($dir in @('config','dist','node_modules')) { Copy-Item (Join-Path $root "automation-worker\$dir") $workerStage -Recurse -Force }

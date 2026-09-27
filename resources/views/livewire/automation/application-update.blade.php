@@ -1,0 +1,55 @@
+<div>
+    <x-automation-nav />
+    <main class="page-shell">
+        <section class="page-heading">
+            <div>
+                <div class="eyebrow">Application maintenance</div>
+                <h1 class="page-title">Update Aplikasi</h1>
+                <p class="page-subtitle">Cek GitHub Release terbaru, download installer, lalu jalankan pembaruan SoundMatic.</p>
+            </div>
+            <span class="badge badge--brand">Versi {{ $currentVersion }}</span>
+        </section>
+
+        @if ($message)
+            <div class="info-banner mb-6" role="status"><strong>Status update</strong><span>{{ $message }}</span></div>
+        @endif
+
+        <article class="panel overflow-hidden">
+            <header class="panel-header">
+                <div>
+                    <h2 class="panel-title">GitHub Update</h2>
+                    <p class="panel-copy">Repository: {{ config('automation.update_repository') }}</p>
+                </div>
+                @if($updateAvailable)
+                    <span class="badge badge--success">Update tersedia</span>
+                @else
+                    <span class="badge badge--brand">Versi lokal {{ $currentVersion }}</span>
+                @endif
+            </header>
+            <div class="grid gap-5 p-5 md:grid-cols-2">
+                <div>
+                    <p class="text-xs font-semibold text-slate-500">Versi terpasang</p>
+                    <p class="mt-2 text-2xl font-bold text-slate-800">v{{ $currentVersion }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-slate-500">Versi GitHub terbaru</p>
+                    <p class="mt-2 text-2xl font-bold text-slate-800">{{ $latestVersion ? 'v'.$latestVersion : 'Belum dicek' }}</p>
+                    @if($installerName)<p class="mt-1 text-xs text-slate-400">{{ $installerName }}</p>@endif
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-3 border-t border-slate-100 p-5">
+                <button type="button" wire:click="checkForUpdate" wire:loading.attr="disabled" wire:target="checkForUpdate" class="secondary-button">
+                    <span wire:loading.remove wire:target="checkForUpdate">Cek Update</span>
+                    <span wire:loading wire:target="checkForUpdate">Mengecek GitHub...</span>
+                </button>
+                <button type="button" wire:click="downloadAndInstall" wire:confirm="Download dan jalankan installer update SoundMatic sekarang? Aplikasi perlu ditutup saat installer memperbarui sistem." wire:loading.attr="disabled" wire:target="downloadAndInstall" @disabled(! $updateAvailable || ! $installerUrl) class="primary-button">
+                    <span wire:loading.remove wire:target="downloadAndInstall">Download &amp; Install Update</span>
+                    <span wire:loading wire:target="downloadAndInstall">Download update...</span>
+                </button>
+                @if($releaseUrl)<a href="{{ $releaseUrl }}" target="_blank" rel="noopener noreferrer" class="text-xs font-semibold text-indigo-600">Lihat GitHub Release ↗</a>@endif
+            </div>
+        </article>
+
+        <div class="info-banner mt-6"><strong>Syarat update</strong><span>GitHub Release harus memakai tag versi seperti v1.1.41 dan memiliki asset installer bernama SoundMatic-Setup-v1.1.41.exe.</span></div>
+    </main>
+</div>

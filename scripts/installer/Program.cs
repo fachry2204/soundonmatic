@@ -8,24 +8,32 @@ namespace SoundOnMatic.Installer;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new InstallerWindow());
+        Application.Run(new InstallerWindow(args.Contains("--silent-update", StringComparer.OrdinalIgnoreCase)));
     }
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.40", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.42", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };
+        private readonly bool silentUpdate;
 
-        public InstallerWindow()
+        public InstallerWindow(bool silentUpdate = false)
         {
+            this.silentUpdate = silentUpdate;
             Text = "SoundMatic Setup"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 540; Height = 330; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
             Controls.Add(note); Controls.Add(install); Controls.Add(progress); Controls.Add(status); progress.Visible = false;
             install.Click += async (_, _) => await InstallAsync();
+            if (silentUpdate)
+            {
+                install.Visible = false;
+                note.Text = "Update SoundMatic sedang dipasang otomatis. Data aplikasi dan credential tetap dipertahankan.";
+                Shown += async (_, _) => await InstallAsync();
+            }
         }
 
         private async Task InstallAsync()
@@ -50,8 +58,9 @@ internal static class Program
                 await Run(Path.Combine(target, "runtime", "php", "php.exe"), "artisan soundonmatic:bootstrap", target);
                 CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SoundMatic.lnk"), Path.Combine(target, "SoundMatic.exe"), target);
                 CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "SoundMatic.lnk"), Path.Combine(target, "SoundMatic.exe"), target);
-                status.Text = "Instalasi selesai."; progress.Visible = false;
-                if (MessageBox.Show("SoundMatic berhasil diinstal. Buka sekarang?", "Selesai", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes) Process.Start(new ProcessStartInfo(Path.Combine(target, "SoundMatic.exe")) { WorkingDirectory = target, UseShellExecute = true });
+                status.Text = silentUpdate ? "Update selesai." : "Instalasi selesai."; progress.Visible = false;
+                if (silentUpdate || MessageBox.Show("SoundMatic berhasil diinstal. Buka sekarang?", "Selesai", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                    Process.Start(new ProcessStartInfo(Path.Combine(target, "SoundMatic.exe")) { WorkingDirectory = target, UseShellExecute = true });
                 Close();
             }
             catch (Exception error) { progress.Visible = false; install.Enabled = true; status.Text = "Instalasi gagal"; MessageBox.Show(error.Message, "SoundMatic Setup", MessageBoxButtons.OK, MessageBoxIcon.Error); }

@@ -12,6 +12,7 @@
     data-mappings-url="{{ route('automation.mappings') }}"
     data-sync-metadata-url="{{ route('automation.sync-metadata') }}"
     data-sessions-url="{{ route('automation.sessions') }}"
+    data-update-url="{{ route('automation.update') }}"
     data-login-url="{{ route('login') }}"
     data-logout-url="{{ route('logout') }}"
 ></div>

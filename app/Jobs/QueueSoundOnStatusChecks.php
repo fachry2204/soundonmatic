@@ -133,13 +133,10 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
             $jobs = $underReviewJobs->concat($uploadingJobs)->unique('id')->values();
 
             foreach ($jobs as $job) {
-                // Every new scan rechecks previously detected releases too;
-                // old identifiers must not enable verification during a scan.
+                // Preserve the last detected status and identifiers while the
+                // replacement scan runs. This keeps reports populated and the
+                // UI stable until the new SoundOn result is committed.
                 $job->update([
-                    'soundon_release_status' => null,
-                    'soundon_upc' => null,
-                    'soundon_isrcs_json' => null,
-                    'soundon_status_checked_at' => null,
                     'soundon_check_status' => 'queued',
                     'soundon_check_progress' => 5,
                     'soundon_check_error' => null,
