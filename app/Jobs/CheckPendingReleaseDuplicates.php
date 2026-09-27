@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Actions\Automation\UploadEligibleDraftsToSoundOn;
 use App\Enums\Platform;
+use App\Enums\ReleaseCheckpoint;
 use App\Enums\ReleaseJobStatus;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
@@ -85,11 +86,45 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                     $status = str_replace('_', ' ', (string) ($releaseMatches[(string) $job->id]['status'] ?? 'all releases'));
                     $sources[] = "SoundOn All releases (status {$status})";
                 }
-                if (isset($draftMatches[(string) $job->id])) {
-                    $sources[] = 'SoundOn Drafts';
-                }
+                $draftMatch = $draftMatches[(string) $job->id] ?? null;
                 $sources = array_values(array_unique($sources));
-                if ($sources !== []) {
+                if ($draftMatch && $sources === []) {
+                    $draftId = (string) ($draftMatch['draft_id'] ?? '');
+                    if ($draftId === '') {
+                        throw new \RuntimeException('Draft SoundOn cocok tetapi Draft ID tidak tersedia.');
+                    }
+                    $job->update([
+                        'status' => ReleaseJobStatus::Running,
+                        'progress_label' => 'Draft SoundOn sudah ada; memindahkan Soundfresh ke Under Review',
+                        'soundon_draft_id' => $draftId,
+                        'soundon_draft_url' => $draftMatch['draft_url'] ?? null,
+                        'soundon_draft_status' => 'already_exists',
+                        'checkpoint' => ReleaseCheckpoint::DraftSaved,
+                        'error_code' => null,
+                        'error_message' => null,
+                    ]);
+                    $review = $worker->review(
+                        (string) $job->id,
+                        $job->soundfresh_release_url,
+                        $draftId,
+                        $soundfresh->session_state_encrypted,
+                    );
+                    if (($review['reviewed'] ?? false) !== true) {
+                        throw new \RuntimeException('Soundfresh tidak mengonfirmasi status Under Review.');
+                    }
+                    $job->update([
+                        'status' => ReleaseJobStatus::Completed,
+                        'checkpoint' => ReleaseCheckpoint::Completed,
+                        'soundfresh_workflow_status' => 'under_review',
+                        'progress_label' => 'Sudah ada di Draft SoundOn — Soundfresh dipindahkan ke Under Review',
+                        'progress_percent' => 100,
+                        'finished_at' => now(),
+                    ]);
+                } elseif ($draftMatch || $sources !== []) {
+                    if ($draftMatch) {
+                        $sources[] = 'SoundOn Drafts';
+                    }
+                    $sources = array_values(array_unique($sources));
                     $job->update([
                         'status' => ReleaseJobStatus::NeedsAttention,
                         'progress_label' => 'Upload diblokir karena duplikat',

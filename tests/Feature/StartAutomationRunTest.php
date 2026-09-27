@@ -176,6 +176,68 @@ class StartAutomationRunTest extends TestCase
         Queue::assertPushed(ProcessReleaseJob::class, fn (ProcessReleaseJob $queued): bool => $queued->releaseJobId === $job->id);
     }
 
+    public function test_matching_title_and_artist_in_soundon_draft_moves_soundfresh_to_under_review_without_upload(): void
+    {
+        Queue::fake();
+        config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);
+        foreach ([Platform::Soundfresh, Platform::SoundOn] as $platform) {
+            AutomationAccount::create([
+                'platform' => $platform,
+                'name' => $platform->value,
+                'status' => 'active',
+                'session_state_encrypted' => ['cookies' => [], 'origins' => []],
+                'last_authenticated_at' => now(),
+            ]);
+        }
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/v1/soundfresh/pending')) {
+                if (data_get($request->data(), 'options.duplicate_lookups')) {
+                    return Http::response(['success' => true, 'data' => ['matches' => []]]);
+                }
+
+                return Http::response(['success' => true, 'data' => ['items' => [[
+                    'release_id' => '100',
+                    'detail_url' => 'https://cms.soundfresh.id/admin/releases/100',
+                    'title' => 'Lagu Sama',
+                    'primary_artist' => 'Artis Sama',
+                    'track_count' => 1,
+                ]]]]);
+            }
+            if (str_ends_with($request->url(), '/v1/soundon/releases/statuses')) {
+                return Http::response(['success' => true, 'data' => ['matches' => []]]);
+            }
+            if (str_ends_with($request->url(), '/v1/soundon/drafts/find-many')) {
+                $lookupKey = (string) data_get($request->data(), 'items.0.key');
+
+                return Http::response(['success' => true, 'data' => ['matches' => [$lookupKey => [
+                    'found' => true,
+                    'draft_id' => 'draft-100',
+                    'draft_url' => 'https://soundon.global/draft/100',
+                ]]]]);
+            }
+            if (str_ends_with($request->url(), '/v1/soundfresh/releases/review')) {
+                return Http::response(['success' => true, 'data' => ['reviewed' => true, 'status' => 'under_review']]);
+            }
+
+            return Http::response(['success' => true, 'data' => []]);
+        });
+
+        $run = app(StartAutomationRun::class)->handle(limit: 10)->fresh();
+        $job = $run->releaseJobs()->firstOrFail();
+        app()->call([new CheckPendingReleaseDuplicates([$job->id], $run->id), 'handle']);
+        $job->refresh();
+
+        $this->assertSame('completed', $job->status->value);
+        $this->assertSame('under_review', $job->soundfresh_workflow_status);
+        $this->assertSame('draft-100', $job->soundon_draft_id);
+        $this->assertSame('already_exists', $job->soundon_draft_status);
+        $this->assertNull($job->error_code);
+        Queue::assertNotPushed(ProcessReleaseJob::class);
+        Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundfresh/releases/review')
+            && data_get($request->data(), 'draft_id') === 'draft-100');
+    }
+
     public function test_matching_title_and_artist_in_remote_sources_blocks_upload_with_clear_reason(): void
     {
         Queue::fake();

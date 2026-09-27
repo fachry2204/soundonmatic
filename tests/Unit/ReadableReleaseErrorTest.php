@@ -24,4 +24,17 @@ class ReadableReleaseErrorTest extends TestCase
         $this->assertStringContainsString('Previously released?', $result['reason']);
         $this->assertStringContainsString('belum mulai diunggah', $result['action']);
     }
+
+    public function test_soundon_form_validation_explains_form_filling_failure(): void
+    {
+        $result = ReadableReleaseError::explain(
+            'SOUNDON_FORM_VALIDATION',
+            'SoundOn menolak metadata pada form. Detail teknis: Missing required field: Genre',
+        );
+
+        $this->assertSame('Pengisian form SoundOn gagal', $result['title']);
+        $this->assertStringContainsString('bukan file rusak', $result['reason']);
+        $this->assertStringContainsString('Genre', $result['action']);
+        $this->assertStringContainsString('Perbaiki metadata', $result['action']);
+    }
 }
