@@ -250,46 +250,25 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
         await table.locator("tbody tr").first().waitFor({ timeout: 20_000 });
         const tableWrapper = table.locator('xpath=ancestor::div[contains(@class,"dataTables_wrapper") or contains(@class,"dt-container")]').first();
 
-        // DataTables defaults to ten rows and Soundfresh's dropdown tops out at
-        // 100. Ask DataTables itself for every row first; if that deployment
-        // rejects page length -1, the pagination loop below still visits every
-        // page.
+        // DataTables defaults to ten rows. Never force page length -1: some
+        // Soundfresh deployments accept that API call but keep only ten rows
+        // and disable pagination. Select the largest real option instead, then
+        // let the pagination loop below visit every remaining page.
         const tableId = await table.getAttribute("id");
         const rowsBeforeExpansion = await table.locator("tbody tr").count();
-        const expandedViaDataTable = tableId
-            ? await page.evaluate((id) => {
-                const element = document.getElementById(id);
-                const jquery = (window as typeof window & { jQuery?: any }).jQuery;
-                if (!element || !jquery?.fn?.dataTable?.isDataTable(element)) return false;
-                jquery(element).DataTable().page.len(-1).draw();
-                return true;
-            }, tableId as string).catch(() => false)
-            : false;
-        if (expandedViaDataTable) {
-            await page.waitForFunction(
-                ({ id, previous }) => document.querySelectorAll(`#${CSS.escape(id)} tbody tr`).length > previous,
-                { id: tableId as string, previous: rowsBeforeExpansion },
-                { timeout: 15_000 },
-            ).catch(() => undefined);
-            await page.waitForTimeout(300);
-        }
-
         const lengthSelect = tableId
             ? page.locator(`select[name="${tableId}_length"]:visible`)
             : page.locator('select[name$="_length"]:visible');
-        if (!expandedViaDataTable && await lengthSelect.count()) {
+        if (await lengthSelect.count()) {
             const values = await lengthSelect.first().locator("option").evaluateAll(
-                (options) => options.map((option) => (option as HTMLOptionElement).value),
+                (options) => options.map((option) => Number((option as HTMLOptionElement).value)),
             );
-            const showAll = values.find((value) => Number(value) === -1);
             const largest = values
-                .map(Number)
                 .filter((value) => Number.isFinite(value) && value > 0)
                 .sort((a, b) => b - a)[0];
-            const pageLength = showAll ?? (largest ? String(largest) : null);
-            if (pageLength) {
-                await lengthSelect.first().selectOption(pageLength);
-                if (tableId && Number(pageLength) > rowsBeforeExpansion) {
+            if (largest) {
+                await lengthSelect.first().selectOption(String(largest));
+                if (tableId && largest > rowsBeforeExpansion) {
                     await page.waitForFunction(
                         ({ id, previous }) =>
                             document.querySelectorAll(`#${CSS.escape(id)} tbody tr`).length > previous,
