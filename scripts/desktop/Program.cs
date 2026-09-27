@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -45,7 +46,7 @@ internal static class Program
 
         public MainWindow(string root)
         {
-            this.root = root; Text = "SoundMatic v1.1.49"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = "SoundMatic v1.1.50"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
             FormClosing += (_, _) => ShutdownServices();
@@ -73,7 +74,20 @@ internal static class Program
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(root, "storage", "app", "webview2"));
                 await view.EnsureCoreWebView2Async(environment);
                 view.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                view.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; view.CoreWebView2.Navigate(e.Uri); };
+                view.CoreWebView2.NavigationStarting += (_, e) =>
+                {
+                    if (IsExternalUrl(e.Uri))
+                    {
+                        e.Cancel = true;
+                        OpenExternalUrl(e.Uri);
+                    }
+                };
+                view.CoreWebView2.NewWindowRequested += (_, e) =>
+                {
+                    e.Handled = true;
+                    if (IsExternalUrl(e.Uri)) OpenExternalUrl(e.Uri);
+                    else view.CoreWebView2.Navigate(e.Uri);
+                };
                 view.Source = new Uri($"http://127.0.0.1:{AppPort}/login"); status.Visible = false; view.Visible = true;
                 serviceMonitor.Start();
             }
@@ -217,6 +231,20 @@ internal static class Program
             info.Environment["PATH"] = Path.Combine(root, "runtime", "media") + Path.PathSeparator + (info.Environment["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? "");
             Process.Start(info);
         }
+        private static bool IsExternalUrl(string? value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return false;
+            if (uri.Scheme is not ("http" or "https")) return false;
+
+            return !IPAddress.IsLoopback(uri.HostNameType == UriHostNameType.IPv4 || uri.HostNameType == UriHostNameType.IPv6 ? IPAddress.Parse(uri.Host) : IPAddress.None)
+                && !string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void OpenExternalUrl(string url)
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+
         private static string QuoteForCmd(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
         private void Start(string name, string exe, string args, string cwd, string key)
         {
