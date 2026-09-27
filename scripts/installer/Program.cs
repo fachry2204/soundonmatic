@@ -10,13 +10,30 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        var silentUpdate = args.Contains("--silent-update", StringComparer.OrdinalIgnoreCase);
+        var detached = args.Contains("--detached", StringComparer.OrdinalIgnoreCase);
+        if (silentUpdate && !detached)
+        {
+            // Older SoundMatic versions launch the installer through Symfony
+            // Process and dispose that process as soon as the HTTP request ends.
+            // Relaunch immediately as an independent Windows shell process so
+            // the updater cannot terminate the real installer with its parent.
+            Process.Start(new ProcessStartInfo(Application.ExecutablePath)
+            {
+                Arguments = "--silent-update --detached",
+                WorkingDirectory = AppContext.BaseDirectory,
+                UseShellExecute = true,
+            });
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
-        Application.Run(new InstallerWindow(args.Contains("--silent-update", StringComparer.OrdinalIgnoreCase)));
+        Application.Run(new InstallerWindow(silentUpdate));
     }
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.43", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.44", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };

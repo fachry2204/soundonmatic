@@ -105,9 +105,19 @@ final class ApplicationUpdate extends Component
         }
 
         if (PHP_OS_FAMILY === 'Windows' && ! app()->runningUnitTests()) {
-            (new Process([$path, '--silent-update']))->setWorkingDirectory(dirname($path))->start();
+            try {
+                $launcher = new Process([
+                    'cmd.exe', '/D', '/S', '/C',
+                    'start "" /D '.escapeshellarg(dirname($path)).' '.escapeshellarg($path).' --silent-update',
+                ]);
+                $launcher->setTimeout(15)->mustRun();
+            } catch (Throwable $error) {
+                $this->message = 'Installer sudah didownload, tetapi gagal dijalankan otomatis. Jalankan manual: '.$path;
+
+                return;
+            }
             $this->installStarted = true;
-            $this->message = 'Installer update v'.$this->latestVersion.' sudah dijalankan. Ikuti proses instalasi, aplikasi akan diperbarui.';
+            $this->message = 'Installer update v'.$this->latestVersion.' sudah dijalankan. SoundMatic akan ditutup, diperbarui, lalu dibuka kembali.';
 
             return;
         }
