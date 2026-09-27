@@ -33,16 +33,15 @@
                         <span wire:loading.remove wire:target="start">Ambil semua rilisan pending</span>
                         <span wire:loading wire:target="start">Menyiapkan...</span>
                     </button>
-                    <button wire:click="uploadToSoundOn" wire:loading.attr="disabled" @if(count($selectedReleaseJobs) > 0) wire:confirm="Upload rilisan yang dicentang ke SoundOn dan simpan sebagai draft?" @endif class="primary-button" style="background:#0f766e" title="Centang minimal satu rilisan pada tabel monitor sebelum upload">
-                        <span wire:loading.remove wire:target="uploadToSoundOn">Upload pilihan ({{ count($selectedReleaseJobs) }})</span>
-                        <span wire:loading wire:target="uploadToSoundOn">Mengantrekan draft...</span>
-                    </button>
+                    <span class="primary-button" style="background:#0f766e; cursor:default" role="status">
+                        Upload otomatis aktif
+                    </span>
                     <button type="button" wire:click="stopAllWorkers" wire:loading.attr="disabled" wire:confirm="Yakin ingin menghentikan SEMUA worker, antrean, dan proses automation yang sedang berjalan?" class="secondary-button" style="border-color:#f4b8bf;background:#fff1f3;color:#a72f3d;font-weight:700;">
                         <span wire:loading.remove wire:target="stopAllWorkers">🛑 Hentikan Semua Worker</span>
                         <span wire:loading wire:target="stopAllWorkers">Menghentikan...</span>
                     </button>
                     </div>
-                    <p class="dashboard-action-hint">Centang rilisan pada tabel, atau gunakan checkbox paling atas untuk memilih semua rilisan yang dapat di-upload.</p>
+                    <p class="dashboard-action-hint">Semua rilisan nonduplikat langsung di-upload ke SoundOn setelah pemeriksaan duplikat selesai. Rilisan duplikat tetap diblokir.</p>
                 </div>
             @endcan
         </section>
@@ -284,7 +283,6 @@
             <div wire:loading.remove wire:target="start" class="table-scroll">
                 <table class="data-table release-monitor-table">
                     <colgroup>
-                        <col class="release-col--select">
                         <col class="release-col--title">
                         <col class="release-col--source">
                         <col class="release-col--soundon">
@@ -292,7 +290,7 @@
                         <col class="release-col--status">
                         <col class="release-col--updated">
                     </colgroup>
-                    <thead><tr><th class="w-12 text-center"><input type="checkbox" wire:click="toggleSelectAll" @checked(count($selectableReleaseJobIds) > 0 && count($selectedReleaseJobs) === count($selectableReleaseJobIds)) @disabled(count($selectableReleaseJobIds) === 0) aria-label="Pilih semua rilisan yang dapat di-upload" class="h-4 w-4 rounded border-slate-300 text-indigo-600"></th><th>Rilisan</th><th>Status Soundfresh</th><th>Status SoundOn</th><th>Progress</th><th>Status Proses</th><th>Diperbarui</th></tr></thead>
+                    <thead><tr><th>Rilisan</th><th>Status Soundfresh</th><th>Status SoundOn</th><th>Progress</th><th>Status Proses</th><th>Diperbarui</th></tr></thead>
                     <tbody wire:key="release-monitor-body-{{ $monitorRun?->id ?? 'none' }}-{{ $releaseJobs->isEmpty() ? 'empty' : 'populated' }}">
                     @forelse ($releaseJobs as $job)
                         @php
@@ -354,7 +352,6 @@
                             };
                         @endphp
                         <tr wire:key="release-monitor-{{ $job->id }}">
-                            <td class="text-center"><input type="checkbox" wire:model.live="selectedReleaseJobs" value="{{ $job->id }}" @disabled(!in_array((string) $job->id, $selectableReleaseJobIds, true)) aria-label="Pilih {{ $displayTitle }} untuk upload ke SoundOn" class="h-4 w-4 rounded border-slate-300 text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"></td>
                             <td><div class="min-w-52"><a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer">{{ $displayTitle }} ↗</a><div class="mt-1 flex flex-wrap items-center gap-1.5"><span class="badge badge--brand">{{ $releaseTypeLabel }}</span><span class="text-[11px] text-slate-400">ID {{ $job->soundfresh_release_id }}@if($job->artist_name) · {{ $job->artist_name }}@endif</span></div></div></td>
                             <td><span class="badge badge--success"><span class="status-dot status-dot--active"></span>Sudah diambil</span><p class="mt-1 text-[11px] text-slate-400">{{ $hasMetadata ? 'Metadata berhasil dibaca' : 'Menunggu ekstraksi metadata' }}</p></td>
                             <td>
@@ -431,7 +428,7 @@
                             <td>{{ $job->updated_at?->diffForHumans() ?? '—' }}<p class="mt-1 text-[11px]"><a href="{{ route('automation.runs.show', $job->automation_run_id) }}">Buka run {{ Str::limit($job->automation_run_id, 12) }} →</a></p></td>
                         </tr>
                     @empty
-                        <tr wire:key="release-monitor-empty"><td colspan="7" class="empty-state">
+                        <tr wire:key="release-monitor-empty"><td colspan="6" class="empty-state">
                             @if($monitorRun && $monitorRun->status->value === 'failed' && !empty($monitorRun->summary_json['error']))
                                 <strong class="text-red-700">Pengambilan rilisan gagal:</strong> {{ $monitorRun->summary_json['error'] }}
                                 <p class="mt-2 text-xs">Periksa credential Soundfresh di Pengaturan Platform, atau cek storage/logs/laravel.log untuk detail.</p>

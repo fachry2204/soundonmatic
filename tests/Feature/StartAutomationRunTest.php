@@ -63,7 +63,7 @@ class StartAutomationRunTest extends TestCase
         Http::assertNotSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundon/drafts/find-many'));
     }
 
-    public function test_pending_releases_wait_for_operator_selection(): void
+    public function test_pending_release_without_duplicate_check_is_automatically_queued_for_soundon_upload(): void
     {
         Queue::fake();
         config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);
@@ -78,11 +78,12 @@ class StartAutomationRunTest extends TestCase
 
         $run = app(StartAutomationRun::class)->handle(limit: 1)->fresh();
 
-        $this->assertSame(AutomationRunStatus::Queued, $run->status);
-        $this->assertTrue((bool) data_get($run->summary_json, 'awaiting_selection'));
+        $this->assertSame(AutomationRunStatus::Running, $run->status);
+        $this->assertFalse((bool) data_get($run->summary_json, 'awaiting_selection'));
+        $this->assertTrue((bool) data_get($run->summary_json, 'draft_upload_requested'));
         $this->assertFalse((bool) data_get($run->summary_json, 'collection_pending'));
         $this->assertSame('queued', $run->releaseJobs()->first()->status->value);
-        Queue::assertNotPushed(ProcessReleaseJob::class);
+        Queue::assertPushed(ProcessReleaseJob::class);
     }
 
     public function test_pending_release_already_in_soundon_is_marked_without_upload_queue(): void
@@ -122,7 +123,7 @@ class StartAutomationRunTest extends TestCase
 
         $run = app(StartAutomationRun::class)->handle(limit: 10)->fresh();
 
-        $this->assertSame(AutomationRunStatus::Queued, $run->status);
+        $this->assertSame(AutomationRunStatus::Completed, $run->status);
         $this->assertSame(1, $run->pending_found);
         $this->assertSame(1, $run->skipped);
         $this->assertSame(1, data_get($run->summary_json, 'duplicate_blocked'));
@@ -131,6 +132,48 @@ class StartAutomationRunTest extends TestCase
         $this->assertSame('DUPLICATE_RELEASE_FOUND', $job->error_code);
         $this->assertStringContainsString('SoundOn Drafts', $job->error_message);
         Queue::assertNotPushed(ProcessReleaseJob::class);
+    }
+
+    public function test_non_duplicate_pending_release_is_automatically_queued_for_soundon_upload(): void
+    {
+        Queue::fake();
+        config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);
+        foreach ([Platform::Soundfresh, Platform::SoundOn] as $platform) {
+            AutomationAccount::create([
+                'platform' => $platform,
+                'name' => $platform->value,
+                'status' => 'active',
+                'session_state_encrypted' => ['cookies' => [], 'origins' => []],
+                'last_authenticated_at' => now(),
+            ]);
+        }
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/v1/soundfresh/pending')) {
+                if (data_get($request->data(), 'options.duplicate_lookups')) {
+                    return Http::response(['success' => true, 'data' => ['matches' => []]]);
+                }
+
+                return Http::response(['success' => true, 'data' => ['items' => [[
+                    'release_id' => '101',
+                    'detail_url' => 'https://cms.soundfresh.id/admin/releases/101',
+                    'title' => 'Rilisan Otomatis',
+                    'primary_artist' => 'Artis Otomatis',
+                    'track_count' => 1,
+                ]]]]);
+            }
+
+            return Http::response(['success' => true, 'data' => ['matches' => []]]);
+        });
+
+        $run = app(StartAutomationRun::class)->handle(limit: 10)->fresh();
+        $job = $run->releaseJobs()->firstOrFail();
+        app()->call([new CheckPendingReleaseDuplicates([$job->id], $run->id), 'handle']);
+
+        $this->assertSame(AutomationRunStatus::Running, $run->fresh()->status);
+        $this->assertFalse((bool) data_get($run->fresh()->summary_json, 'awaiting_selection'));
+        $this->assertTrue((bool) data_get($run->fresh()->summary_json, 'draft_upload_requested'));
+        $this->assertSame([$job->id], data_get($run->fresh()->summary_json, 'selected_release_job_ids'));
+        Queue::assertPushed(ProcessReleaseJob::class, fn (ProcessReleaseJob $queued): bool => $queued->releaseJobId === $job->id);
     }
 
     public function test_matching_title_and_artist_in_remote_sources_blocks_upload_with_clear_reason(): void

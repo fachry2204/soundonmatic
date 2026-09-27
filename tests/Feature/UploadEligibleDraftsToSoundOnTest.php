@@ -108,7 +108,7 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
         Queue::assertPushed(fn (ProcessReleaseJob $job) => $job->releaseJobId === $duplicate->id);
     }
 
-    public function test_dashboard_explains_that_a_release_must_be_selected(): void
+    public function test_dashboard_explains_that_upload_is_automatic(): void
     {
         $this->seed(AccessControlSeeder::class);
         $admin = User::factory()->create();
@@ -116,9 +116,9 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
 
         Livewire::actingAs($admin)
             ->test(Dashboard::class)
-            ->assertSee('Upload pilihan (0)')
-            ->assertSee('Centang rilisan pada tabel')
-            ->call('uploadToSoundOn')
-            ->assertSet('operationError', 'Pilih minimal satu rilisan yang akan di-upload ke SoundOn.');
+            ->assertSee('Upload otomatis aktif')
+            ->assertSee('Semua rilisan nonduplikat langsung di-upload ke SoundOn')
+            ->assertDontSee('Upload pilihan (0)')
+            ->assertDontSee('Centang rilisan pada tabel');
     }
 }

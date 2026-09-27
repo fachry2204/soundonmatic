@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Actions\Automation\UploadEligibleDraftsToSoundOn;
 use App\Enums\Platform;
 use App\Enums\ReleaseJobStatus;
 use App\Models\AutomationRun;
@@ -30,7 +31,11 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
         $this->onQueue('release-automation');
     }
 
-    public function handle(PlaywrightClient $worker, SessionManager $sessions): void
+    public function handle(
+        PlaywrightClient $worker,
+        SessionManager $sessions,
+        UploadEligibleDraftsToSoundOn $uploader,
+    ): void
     {
         $jobs = ReleaseJob::query()
             ->whereIn('id', $this->releaseJobIds)
@@ -98,12 +103,21 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                         'error_code' => null,
                         'error_message' => null,
                         'progress_percent' => 100,
-                        'progress_label' => 'Pemeriksaan duplikat selesai — siap dipilih',
+                        'progress_label' => 'Pemeriksaan duplikat selesai — upload otomatis diantrikan',
                     ]);
                 }
             }
 
             $this->updateSummary();
+
+            $uploadIds = $jobs
+                ->filter(fn (ReleaseJob $job): bool => $job->fresh()->error_code === null)
+                ->pluck('id')
+                ->map('strval')
+                ->all();
+            if ($uploadIds !== []) {
+                $uploader->handle($uploadIds);
+            }
         } catch (Throwable $exception) {
             ReleaseJob::query()
                 ->whereIn('id', $jobs->pluck('id'))

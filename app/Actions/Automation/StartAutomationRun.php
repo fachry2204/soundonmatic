@@ -21,6 +21,7 @@ final class StartAutomationRun
     public function __construct(
         private readonly PlaywrightClient $worker,
         private readonly SessionManager $sessions,
+        private readonly UploadEligibleDraftsToSoundOn $uploader,
     ) {}
 
     public function handle(?int $userId = null, ?int $limit = null): AutomationRun
@@ -29,7 +30,7 @@ final class StartAutomationRun
             'triggered_by' => $userId,
             'status' => AutomationRunStatus::Queued,
             'started_at' => now(),
-            'summary_json' => ['draft_only' => true, 'awaiting_selection' => true, 'collection_pending' => true],
+            'summary_json' => ['draft_only' => true, 'automatic_upload' => true, 'awaiting_selection' => false, 'collection_pending' => true],
         ]);
 
         // Never call a browser worker during the Livewire request. Browser
@@ -171,13 +172,21 @@ final class StartAutomationRun
         if ($run->releaseJobs()->doesntExist()) {
             $run->update(['status' => AutomationRunStatus::Completed, 'finished_at' => now()]);
         } elseif ($duplicateCheckIds === []) {
-            // Collection is finished and the rows are ready for operator
-            // selection. Do not leave the run looking active forever.
             $run->update([
                 'status' => AutomationRunStatus::Completed,
                 'finished_at' => now(),
                 'summary_json' => [...($run->fresh()->summary_json ?? []), 'duplicate_check_completed' => true],
             ]);
+
+            $uploadIds = $run->releaseJobs()
+                ->whereNull('error_code')
+                ->whereNull('soundon_draft_id')
+                ->pluck('id')
+                ->map(fn ($id): string => (string) $id)
+                ->all();
+            if ($uploadIds !== []) {
+                $this->uploader->handle($uploadIds);
+            }
         }
     }
 
