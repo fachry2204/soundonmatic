@@ -106,10 +106,10 @@ final class ApplicationUpdate extends Component
 
         if (PHP_OS_FAMILY === 'Windows' && ! app()->runningUnitTests()) {
             try {
-                $launcher = new Process([
-                    'cmd.exe', '/D', '/S', '/C',
-                    'start "" /D '.escapeshellarg(dirname($path)).' '.escapeshellarg($path).' --silent-update',
-                ]);
+                // The installer self-detaches before closing SoundMatic. Calling
+                // it directly avoids cmd.exe interpreting a Windows path as a
+                // UNC/network path ("The network is not present or not started").
+                $launcher = new Process($this->installerCommand($path), dirname($path));
                 $launcher->setTimeout(15)->mustRun();
             } catch (Throwable $error) {
                 $this->message = 'Installer sudah didownload, tetapi gagal dijalankan otomatis. Jalankan manual: '.$path;
@@ -128,6 +128,12 @@ final class ApplicationUpdate extends Component
     public function render()
     {
         return view('livewire.automation.application-update');
+    }
+
+    /** @return array<int, string> */
+    private function installerCommand(string $path): array
+    {
+        return [$path, '--silent-update'];
     }
 
     private function extractVersion(?string $value): ?string

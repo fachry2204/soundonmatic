@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
-    <AssemblyName>SoundMatic-Setup</AssemblyName><Version>1.1.45</Version>
+    <AssemblyName>SoundMatic-Setup</AssemblyName><Version>1.1.46</Version>
     <ApplicationIcon>..\assets\soundmatic-icon.ico</ApplicationIcon><Product>SoundMatic Setup</Product><Title>SoundMatic Setup</Title><Company>Soundfresh.ID</Company>
   </PropertyGroup>
   <ItemGroup><EmbeddedResource Include="payload.7z" LogicalName="SoundOnMatic.payload.7z" /><EmbeddedResource Include="7z.exe" LogicalName="SoundOnMatic.7z.exe" /><EmbeddedResource Include="7z.dll" LogicalName="SoundOnMatic.7z.dll" /></ItemGroup>

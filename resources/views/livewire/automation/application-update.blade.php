@@ -42,11 +42,23 @@
                     <span wire:loading.remove wire:target="checkForUpdate">Cek Update</span>
                     <span wire:loading wire:target="checkForUpdate">Mengecek GitHub...</span>
                 </button>
-                <button type="button" wire:click="downloadAndInstall" wire:confirm="Download dan jalankan installer update SoundMatic sekarang? Aplikasi perlu ditutup saat installer memperbarui sistem." wire:loading.attr="disabled" wire:target="downloadAndInstall" @disabled(! $updateAvailable || ! $installerUrl) class="primary-button">
+                <button type="button" wire:click="downloadAndInstall" wire:confirm="Download dan jalankan installer update SoundMatic sekarang? Setelah download selesai, aplikasi otomatis ditutup dan installer dijalankan." wire:loading.attr="disabled" wire:target="downloadAndInstall" @disabled(! $updateAvailable || ! $installerUrl) class="primary-button">
                     <span wire:loading.remove wire:target="downloadAndInstall">Download &amp; Install Update</span>
                     <span wire:loading wire:target="downloadAndInstall">Download update...</span>
                 </button>
                 @if($releaseUrl)<a href="{{ $releaseUrl }}" target="_blank" rel="noopener noreferrer" class="text-xs font-semibold text-indigo-600">Lihat GitHub Release ↗</a>@endif
+            </div>
+            <div class="border-t border-slate-100 px-5 pb-5" aria-live="polite">
+                <div class="mb-2 flex items-center justify-between text-xs font-semibold text-slate-500">
+                    <span>Progress download update</span>
+                    <span wire:loading.remove wire:target="downloadAndInstall">Siap</span>
+                    <span wire:loading wire:target="downloadAndInstall">Sedang mengunduh dan memverifikasi...</span>
+                </div>
+                <div class="h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Progress download update">
+                    <div wire:loading.remove wire:target="downloadAndInstall" class="h-full w-0 rounded-full bg-indigo-600"></div>
+                    <div wire:loading wire:target="downloadAndInstall" class="h-full w-2/3 animate-pulse rounded-full bg-indigo-600"></div>
+                </div>
+                <p class="mt-2 text-xs text-slate-400">Aplikasi otomatis ditutup setelah download selesai, installer terbuka otomatis, lalu file installer dihapus otomatis setelah update.</p>
             </div>
         </article>
 

@@ -51,6 +51,38 @@ final class ApplicationUpdateTest extends TestCase
         $this->assertSame('installer-binary', file_get_contents(storage_path('app/updates/SoundMatic-Setup-v1.1.41.exe')));
     }
 
+    public function test_windows_installer_uses_direct_self_detaching_command(): void
+    {
+        $component = new ApplicationUpdate;
+        $method = new \ReflectionMethod($component, 'installerCommand');
+
+        $this->assertSame(
+            ['C:\\SoundMatic Updates\\SoundMatic-Setup-v1.1.46.exe', '--silent-update'],
+            $method->invoke($component, 'C:\\SoundMatic Updates\\SoundMatic-Setup-v1.1.46.exe'),
+        );
+    }
+
+    public function test_installer_schedules_downloaded_executable_for_deletion(): void
+    {
+        $source = file_get_contents(base_path('scripts/installer/Program.cs'));
+
+        $this->assertStringContainsString('ScheduleSelfDelete();', $source);
+        $this->assertStringContainsString('private static void ScheduleSelfDelete()', $source);
+    }
+
+    public function test_update_page_shows_download_progress_and_automatic_flow(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+
+        Livewire::actingAs($admin)
+            ->test(ApplicationUpdate::class)
+            ->assertSee('Progress download update')
+            ->assertSee('Aplikasi otomatis ditutup setelah download selesai')
+            ->assertSee('installer dihapus otomatis');
+    }
+
     public function test_version_can_be_recovered_from_installer_name_when_release_tag_is_malformed(): void
     {
         $this->seed(AccessControlSeeder::class);

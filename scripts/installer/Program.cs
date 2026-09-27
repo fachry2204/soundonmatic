@@ -33,7 +33,7 @@ internal static class Program
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.45", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.46", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };
@@ -78,10 +78,31 @@ internal static class Program
                 status.Text = silentUpdate ? "Update selesai." : "Instalasi selesai."; progress.Visible = false;
                 if (silentUpdate || MessageBox.Show("SoundMatic berhasil diinstal. Buka sekarang?", "Selesai", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                     Process.Start(new ProcessStartInfo(Path.Combine(target, "SoundMatic.exe")) { WorkingDirectory = target, UseShellExecute = true });
+                ScheduleSelfDelete();
                 Close();
             }
             catch (Exception error) { progress.Visible = false; install.Enabled = true; status.Text = "Instalasi gagal"; MessageBox.Show(error.Message, "SoundMatic Setup", MessageBoxButtons.OK, MessageBoxIcon.Error); }
             finally { try { Directory.Delete(temp, true); } catch { } }
+        }
+
+        private static void ScheduleSelfDelete()
+        {
+            try
+            {
+                var executable = Application.ExecutablePath;
+                var command = $"timeout /T 3 /NOBREAK >NUL & del /F /Q \"{executable}\"";
+                var info = new ProcessStartInfo("cmd.exe")
+                {
+                    WorkingDirectory = Path.GetTempPath(),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                info.ArgumentList.Add("/D");
+                info.ArgumentList.Add("/C");
+                info.ArgumentList.Add(command);
+                Process.Start(info);
+            }
+            catch { }
         }
 
         private static void ExtractResource(string name, string destination) { using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(name) ?? throw new InvalidOperationException($"Resource {name} tidak ditemukan."); using var output = File.Create(destination); source.CopyTo(output); }
