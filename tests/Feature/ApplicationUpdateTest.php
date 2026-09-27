@@ -51,6 +51,32 @@ final class ApplicationUpdateTest extends TestCase
         $this->assertSame('installer-binary', file_get_contents(storage_path('app/updates/SoundMatic-Setup-v1.1.41.exe')));
     }
 
+    public function test_version_can_be_recovered_from_installer_name_when_release_tag_is_malformed(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+        $this->actingAs($admin);
+        config([
+            'automation.app_version' => '1.1.41',
+            'automation.update_repository' => 'fachry2204/soundonmatic',
+        ]);
+        Http::fake([
+            'https://api.github.com/repos/fachry2204/soundonmatic/releases/latest' => Http::response([
+                'tag_name' => 'SoundMatic-Setup-v1.1.42',
+                'assets' => [[
+                    'name' => 'SoundMatic-Setup-v1.1.42.exe',
+                    'browser_download_url' => 'https://github.com/fachry2204/soundonmatic/releases/download/v1.1.42/SoundMatic-Setup-v1.1.42.exe',
+                ]],
+            ]),
+        ]);
+
+        Livewire::test(ApplicationUpdate::class)
+            ->call('checkForUpdate')
+            ->assertSet('latestVersion', '1.1.42')
+            ->assertSet('updateAvailable', true);
+    }
+
     public function test_no_update_message_when_github_version_is_not_newer(): void
     {
         $this->seed(AccessControlSeeder::class);

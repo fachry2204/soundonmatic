@@ -52,7 +52,6 @@ final class ApplicationUpdate extends Component
         }
 
         $this->latestTag = (string) ($release['tag_name'] ?? '');
-        $this->latestVersion = $this->normalizeVersion($this->latestTag);
         $this->releaseUrl = (string) ($release['html_url'] ?? '');
         $asset = collect($release['assets'] ?? [])->first(function (array $asset): bool {
             $name = (string) ($asset['name'] ?? '');
@@ -61,6 +60,9 @@ final class ApplicationUpdate extends Component
         });
         $this->installerName = $asset ? (string) ($asset['name'] ?? '') : null;
         $this->installerUrl = $asset ? (string) ($asset['browser_download_url'] ?? '') : null;
+        $this->latestVersion = $this->extractVersion($this->latestTag)
+            ?? $this->extractVersion((string) $this->installerName)
+            ?? '0.0.0';
         $this->updateAvailable = version_compare($this->latestVersion, $this->currentVersion, '>');
 
         if (! $this->updateAvailable) {
@@ -82,13 +84,20 @@ final class ApplicationUpdate extends Component
         }
 
         try {
-            $response = Http::withHeaders(['User-Agent' => 'SoundMatic-Updater'])->timeout(600)->get($this->installerUrl)->throw();
             $directory = storage_path('app/updates');
             if (! is_dir($directory)) {
                 mkdir($directory, 0755, true);
             }
             $path = $directory.DIRECTORY_SEPARATOR.basename($this->installerName);
-            file_put_contents($path, $response->body());
+            Http::withHeaders(['User-Agent' => 'SoundMatic-Updater'])
+                ->withOptions(['sink' => $path])
+                ->timeout(1800)
+                ->get($this->installerUrl)
+                ->throw();
+            if (! is_file($path) || (! app()->runningUnitTests() && filesize($path) < 10_000_000)) {
+                @unlink($path);
+                throw new \RuntimeException('Installer update tidak lengkap.');
+            }
         } catch (Throwable $error) {
             $this->message = 'Gagal download installer update. Periksa koneksi internet lalu coba lagi.';
 
@@ -111,11 +120,17 @@ final class ApplicationUpdate extends Component
         return view('livewire.automation.application-update');
     }
 
+    private function extractVersion(?string $value): ?string
+    {
+        if (preg_match('/(?:^|[^0-9])v?(\d+\.\d+\.\d+)(?:[^0-9]|$)/i', (string) $value, $matches) !== 1) {
+            return null;
+        }
+
+        return $matches[1];
+    }
+
     private function normalizeVersion(string $version): string
     {
-        $version = trim($version);
-        $version = ltrim($version, 'vV');
-
-        return $version !== '' ? $version : '0.0.0';
+        return $this->extractVersion($version) ?? '0.0.0';
     }
 }
