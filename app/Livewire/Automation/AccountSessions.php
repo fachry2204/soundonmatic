@@ -140,7 +140,7 @@ final class AccountSessions extends Component
     public function openDownloadFolder(): void
     {
         Gate::authorize('sessions.manage');
-        $path = Storage::disk('local')->path('automation/downloads');
+        $path = $this->downloadFolderPath();
         if (! is_dir($path)) {
             mkdir($path, 0700, true);
         }
@@ -149,8 +149,19 @@ final class AccountSessions extends Component
 
             return;
         }
-        (new Process(['explorer.exe', $path]))->start();
-        $this->message = 'Folder download dibuka: '.$path;
+
+        try {
+            (new Process(['explorer.exe', $path]))->setTimeout(10)->mustRun();
+            $this->message = 'Folder download dibuka: '.$path;
+        } catch (Throwable $error) {
+            report($error);
+            $this->message = 'Folder download gagal dibuka. Lokasi: '.$path;
+        }
+    }
+
+    private function downloadFolderPath(): string
+    {
+        return Storage::disk('local')->path('automation/downloads');
     }
 
     public function clearDownloadData(CleanupTemporaryAssets $cleanup, StopAutomationRun $stop): void

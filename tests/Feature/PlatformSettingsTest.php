@@ -98,6 +98,15 @@ class PlatformSettingsTest extends TestCase
         $this->assertNotNull($account->session_state_encrypted);
     }
 
+    public function test_download_folder_resolves_to_private_automation_downloads_directory(): void
+    {
+        $component = new AccountSessions;
+        $method = new \ReflectionMethod($component, 'downloadFolderPath');
+        $path = str_replace('\\', '/', $method->invoke($component));
+
+        $this->assertStringEndsWith('/storage/app/private/automation/downloads', $path);
+    }
+
     public function test_admin_can_clear_downloaded_release_assets(): void
     {
         Storage::fake('local');

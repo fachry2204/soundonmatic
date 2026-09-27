@@ -45,7 +45,7 @@ internal static class Program
 
         public MainWindow(string root)
         {
-            this.root = root; Text = "SoundMatic v1.1.48"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = "SoundMatic v1.1.49"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
             FormClosing += (_, _) => ShutdownServices();
