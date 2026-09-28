@@ -412,12 +412,32 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             if (disabled)
                 break;
             await next.click({ timeout: 5_000 });
-            await page.waitForFunction(({ selector, previous }) => {
-                const row = document.querySelector(`${selector} tbody tr`);
-                return row && (row.textContent ?? '').trim() !== previous.trim();
-            }, { selector: await table.evaluate((element) => `#${CSS.escape(element.id)}`), previous: firstRowBefore }, { timeout: 5_000 }).catch(() => undefined);
-            const firstRowAfter = await table.locator("tbody tr").first().innerText().catch(() => "");
-            if (firstRowAfter.trim() === firstRowBefore.trim()) {
+            const waitForDifferentFirstRow = async (id) => {
+                await page.waitForFunction(({ id: targetId, previous }) => {
+                    const row = document.querySelector(`#${CSS.escape(targetId)} tbody tr`);
+                    return row && (row.textContent ?? '').trim() !== previous.trim();
+                }, { id, previous: firstRowBefore }, { timeout: 5_000 }).catch(() => undefined);
+                return (await table.locator("tbody tr").first().innerText().catch(() => "")).trim() !== firstRowBefore.trim();
+            };
+            let pageChanged = tableId ? await waitForDifferentFirstRow(tableId) : false;
+            if (!pageChanged && tableId) {
+                const advancedWithDataTables = await table.evaluate((element) => {
+                    const jquery = window.jQuery;
+                    if (!jquery?.fn?.DataTable?.isDataTable(element))
+                        return false;
+                    const dataTable = jquery(element).DataTable();
+                    const info = dataTable.page.info();
+                    if (info.page >= info.pages - 1)
+                        return false;
+                    dataTable.page("next").draw("page");
+                    return true;
+                }).catch(() => false);
+                if (advancedWithDataTables) {
+                    req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh next-page control did not redraw; DataTables API fallback applied");
+                    pageChanged = await waitForDifferentFirstRow(tableId);
+                }
+            }
+            if (!pageChanged) {
                 req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh next page did not redraw the table");
                 break;
             }

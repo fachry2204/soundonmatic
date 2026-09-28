@@ -18,5 +18,7 @@ final class SoundfreshCollectionTest extends TestCase
         $this->assertStringContainsString('const largest = values', $source);
         $this->assertStringContainsString('await lengthSelect.first().selectOption(String(largest))', $source);
         $this->assertStringContainsString('while (items.length < max)', $source);
+        $this->assertStringContainsString('dataTable.page("next").draw("page")', $source);
+        $this->assertStringContainsString('Soundfresh next-page control did not redraw; DataTables API fallback applied', $source);
     }
 }
