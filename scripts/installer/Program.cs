@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using System.Management;
 
 namespace SoundOnMatic.Installer;
 
@@ -33,7 +34,7 @@ internal static class Program
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.56", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.57", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };
@@ -70,6 +71,9 @@ internal static class Program
                 status.Text = "Menghentikan SoundMatic yang sedang berjalan...";
                 Log(status.Text);
                 await StopRunningApplication(target);
+                StopOwnedRuntimeProcesses(target);
+                await Task.Delay(700);
+                DeleteOldWorkerFiles(target);
                 status.Text = "Mengekstrak aplikasi...";
                 Log(status.Text);
                 var payload = Path.Combine(temp, "payload.7z"); var sevenZip = Path.Combine(temp, "7z.exe"); var sevenZipLibrary = Path.Combine(temp, "7z.dll");
@@ -177,6 +181,56 @@ internal static class Program
             }.Where(IsFileLocked).ToArray();
             if (locked.Length > 0)
                 throw new InvalidOperationException("SoundMatic masih menggunakan file runtime. Tutup aplikasi melalui Task Manager lalu jalankan installer kembali. File terkunci: " + string.Join(", ", locked.Select(Path.GetFileName)));
+        }
+
+        private static void StopOwnedRuntimeProcesses(string target)
+        {
+            var normalizedTarget = Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            try
+            {
+                using var query = new ManagementObjectSearcher("SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name='php.exe' OR Name='node.exe'");
+                foreach (ManagementObject item in query.Get())
+                {
+                    var executable = (string?) item["ExecutablePath"] ?? string.Empty;
+                    var command = (string?) item["CommandLine"] ?? string.Empty;
+                    if (!executable.StartsWith(normalizedTarget, StringComparison.OrdinalIgnoreCase)
+                        && !command.Contains(normalizedTarget, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        using var process = Process.GetProcessById(Convert.ToInt32(item["ProcessId"]));
+                        process.Kill(entireProcessTree: true);
+                        process.WaitForExit(10_000);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        private static void DeleteOldWorkerFiles(string target)
+        {
+            var worker = Path.Combine(target, "automation-worker");
+            foreach (var relativePath in new[] { "config", "dist", "node_modules" })
+            {
+                var path = Path.Combine(worker, relativePath);
+                if (Directory.Exists(path)) Directory.Delete(path, true);
+            }
+            foreach (var relativePath in new[] { "package.json", "package-lock.json", ".env.install" })
+            {
+                var path = Path.Combine(worker, relativePath);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            foreach (var pidFile in new[] {
+                "storage\\app\\automation-worker.pid",
+                "storage\\app\\release-queue-worker.pid",
+                "storage\\app\\status-queue-worker.pid",
+            })
+            {
+                var path = Path.Combine(target, pidFile);
+                if (File.Exists(path)) File.Delete(path);
+                if (File.Exists(path + ".logs.json")) File.Delete(path + ".logs.json");
+            }
+            Log("Worker lama dihentikan dan file kode worker lama dihapus sebelum ekstraksi update.");
         }
 
         private static bool BelongsToInstallation(Process process, string normalizedTarget)

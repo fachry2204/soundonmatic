@@ -155,13 +155,6 @@ final class ReleaseStatus extends Component
 
             return;
         }
-        // Hide previous check results immediately without deleting upload
-        // history or assets. Newly collected rows become visible when queued.
-        ReleaseJob::query()->whereIn('soundfresh_workflow_status', match ($this->checkSourceTab) {
-            'under_review' => ['under_review'],
-            'uploading' => ['uploading'],
-            default => ['under_review', 'uploading'],
-        })->update(['soundon_check_status' => null]);
         $this->selectedJobIds = [];
         QueueSoundOnStatusChecks::dispatch(auth()->id(), $this->checkSourceTab);
         $this->bulkCheckRequested = true;
@@ -200,6 +193,43 @@ final class ReleaseStatus extends Component
                 ? 'Pemeriksaan telah berhenti. Semua status loading sudah difinalisasi; rilisan yang terputus dapat diperiksa ulang.'
                 : 'Pemeriksaan rilisan Under Review dan Uploading telah selesai.';
         }
+    }
+
+    public function recheckCurrentSoundOnTab(): void
+    {
+        if (! in_array($this->soundOnStatus, ['under_review', 'not_approved'], true)) {
+            $this->syncMessage = 'Pilih tab Status Under Review atau Status Not Approve untuk cek ulang status terbaru.';
+
+            return;
+        }
+
+        $jobs = ReleaseJob::query()
+            ->whereIn('soundfresh_workflow_status', match ($this->checkSourceTab) {
+                'under_review' => ['under_review'],
+                'uploading' => ['uploading'],
+                default => ['under_review', 'uploading'],
+            })
+            ->where('soundon_release_status', $this->soundOnStatus)
+            ->whereNotIn('soundon_check_status', ['queued', 'checking'])
+            ->get();
+
+        foreach ($jobs as $job) {
+            $job->update([
+                'soundon_check_status' => 'queued',
+                'soundon_check_progress' => 5,
+                'soundon_check_error' => null,
+                'soundon_check_started_at' => null,
+                'soundon_check_finished_at' => null,
+            ]);
+        }
+
+        $jobs->pluck('id')->chunk(5)->each(
+            fn ($ids) => CheckSoundOnReleaseStatus::dispatch($ids->values()->all(), null, 'uploading')
+        );
+
+        $label = $this->soundOnStatus === 'under_review' ? 'Under Review' : 'Not Approve';
+        $this->bulkCheckRequested = $jobs->isNotEmpty();
+        $this->syncMessage = $jobs->count().' rilisan di tab '.$label.' diantrikan untuk cek ulang status SoundOn.';
     }
 
     public function checkSoundOnStatus(string $jobId): void

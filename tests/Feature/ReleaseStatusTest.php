@@ -463,9 +463,7 @@ final class ReleaseStatusTest extends TestCase
             ->assertSet('bulkCheckRequested', true)
             ->assertSet('syncMessage', 'Sedang memeriksa tab Under Review dan Uploading Soundfresh terhadap SoundOn.');
 
-        $existing->refresh();
-        $this->assertSame('detected', $existing->soundon_check_status);
-        $this->assertSame(100, $existing->soundon_check_progress);
+        $this->assertDatabaseHas('release_jobs', ['id' => $existing->id, 'soundon_check_status' => 'detected']);
 
         Queue::assertPushed(QueueSoundOnStatusChecks::class);
         Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($queued) => $queued->queue === 'status-checks');
@@ -618,6 +616,121 @@ final class ReleaseStatusTest extends TestCase
             ->assertSee('Hanya Under Review')
             ->assertSee('Hanya Uploading')
             ->assertDontSee('Jangan Tampilkan Verified');
+    }
+
+    public function test_bulk_status_check_skips_already_checked_releases_and_keeps_saved_statuses(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        Queue::fake();
+        foreach (['soundfresh' => 'Soundfresh', 'soundon' => 'SoundOn'] as $platform => $name) {
+            AutomationAccount::query()->create([
+                'platform' => $platform, 'name' => $name, 'status' => 'active',
+                'session_state_encrypted' => ['cookies' => []], 'last_authenticated_at' => now(),
+            ]);
+        }
+
+        $run = AutomationRun::query()->create(['status' => 'completed']);
+        $checked = ReleaseJob::query()->create([
+            'automation_run_id' => $run->id,
+            'soundfresh_release_id' => 'SF-CHECKED-STATUS',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/checked',
+            'idempotency_key' => 'soundfresh:SF-CHECKED-STATUS:soundon',
+            'release_title' => 'Status Sudah Tersimpan',
+            'status' => 'completed', 'checkpoint' => 'discovered',
+            'soundfresh_workflow_status' => 'uploading',
+            'soundon_release_status' => 'not_approved',
+            'soundon_check_status' => 'detected',
+            'soundon_check_progress' => 100,
+            'soundon_status_checked_at' => now(),
+        ]);
+        Http::fake(fn ($request) => Http::response([
+            'success' => true,
+            'data' => ['items' => [[
+                'release_id' => 'SF-CHECKED-STATUS',
+                'title' => 'Status Sudah Tersimpan',
+                'primary_artist' => '',
+                'detail_url' => 'https://cms.soundfresh.id/releases/checked',
+                'track_count' => 1,
+                'workflow_status' => 'uploading',
+            ], [
+                'release_id' => 'SF-NEW-STATUS',
+                'title' => 'Status Baru Dicek',
+                'primary_artist' => '',
+                'detail_url' => 'https://cms.soundfresh.id/releases/new',
+                'track_count' => 1,
+                'workflow_status' => 'uploading',
+            ]]],
+        ]));
+
+        Livewire::test(ReleaseStatus::class)
+            ->set('checkSourceTab', 'uploading')
+            ->call('refreshSoundOnStatuses');
+        app()->call([new QueueSoundOnStatusChecks($viewer->id, 'uploading'), 'handle']);
+
+        $checked->refresh();
+        $this->assertSame('not_approved', $checked->soundon_release_status);
+        $this->assertSame('detected', $checked->soundon_check_status);
+        $new = ReleaseJob::query()->where('soundfresh_release_id', 'SF-NEW-STATUS')->sole();
+        $this->assertSame('queued', $new->soundon_check_status);
+        Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => $queued->releaseJobIds === [$new->id]);
+        Queue::assertNotPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => in_array($checked->id, $queued->releaseJobIds, true));
+    }
+
+    public function test_selected_soundon_status_tab_can_be_rechecked_without_checking_other_tabs(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        Queue::fake();
+        $run = AutomationRun::query()->create(['status' => 'completed']);
+        $underReview = ReleaseJob::query()->create([
+            'automation_run_id' => $run->id,
+            'soundfresh_release_id' => 'SF-RECHECK-UNDER',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/recheck-under',
+            'idempotency_key' => 'status-recheck-under',
+            'release_title' => 'Cek Ulang Under Review',
+            'status' => 'completed', 'checkpoint' => 'discovered',
+            'soundfresh_workflow_status' => 'uploading',
+            'soundon_release_status' => 'under_review',
+            'soundon_check_status' => 'detected',
+            'soundon_check_progress' => 100,
+        ]);
+        $notApproved = ReleaseJob::query()->create([
+            'automation_run_id' => $run->id,
+            'soundfresh_release_id' => 'SF-RECHECK-NOT-APPROVED',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/recheck-rejected',
+            'idempotency_key' => 'status-recheck-rejected',
+            'release_title' => 'Jangan Cek Tab Lain',
+            'status' => 'completed', 'checkpoint' => 'discovered',
+            'soundfresh_workflow_status' => 'uploading',
+            'soundon_release_status' => 'not_approved',
+            'soundon_check_status' => 'detected',
+            'soundon_check_progress' => 100,
+        ]);
+
+        Livewire::test(ReleaseStatus::class)
+            ->set('soundOnStatus', 'under_review')
+            ->assertSee('Cek ulang status tab ini')
+            ->call('recheckCurrentSoundOnTab')
+            ->assertSet('syncMessage', '1 rilisan di tab Under Review diantrikan untuk cek ulang status SoundOn.');
+
+        $this->assertSame('queued', $underReview->fresh()->soundon_check_status);
+        $this->assertSame('detected', $notApproved->fresh()->soundon_check_status);
+        Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => $queued->releaseJobIds === [$underReview->id]);
+        Queue::assertNotPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => in_array($notApproved->id, $queued->releaseJobIds, true));
+    }
+
+    public function test_installer_kills_and_removes_old_worker_files_before_extracting_update(): void
+    {
+        $source = file_get_contents(base_path('scripts/installer/Program.cs'));
+        $this->assertStringContainsString('StopOwnedRuntimeProcesses(target)', $source);
+        $this->assertStringContainsString('DeleteOldWorkerFiles(target)', $source);
+        $this->assertStringContainsString('automation-worker', $source);
+        $this->assertStringContainsString('automation-worker.pid', $source);
     }
 
     public function test_single_release_can_be_queued_for_status_check_from_its_row(): void

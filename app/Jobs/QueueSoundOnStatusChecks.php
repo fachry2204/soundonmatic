@@ -89,7 +89,14 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
                 }
             });
 
-            $actionableItems = $canonicalItems;
+            $alreadyCheckedReleaseIds = ReleaseJob::query()
+                ->whereIn('soundfresh_release_id', $canonicalItems->pluck('release_id')->filter()->all())
+                ->whereNotNull('soundon_status_checked_at')
+                ->pluck('soundfresh_release_id')
+                ->all();
+            $actionableItems = $canonicalItems
+                ->reject(fn (array $item): bool => in_array((string) $item['release_id'], $alreadyCheckedReleaseIds, true))
+                ->values();
             $store = function (array $item, string $sourceStatus) use ($run): ReleaseJob {
                 $key = 'soundfresh:'.$item['release_id'].':soundon';
                 $job = ReleaseJob::query()->where('idempotency_key', $key)->first();
