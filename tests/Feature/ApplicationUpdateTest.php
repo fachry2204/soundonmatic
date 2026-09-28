@@ -51,15 +51,19 @@ final class ApplicationUpdateTest extends TestCase
         $this->assertSame('installer-binary', file_get_contents(storage_path('app/updates/SoundMatic-Setup-v1.1.41.exe')));
     }
 
-    public function test_windows_installer_uses_direct_self_detaching_command(): void
+    public function test_desktop_host_launches_downloaded_installer_and_closes_application(): void
     {
-        $component = new ApplicationUpdate;
-        $method = new \ReflectionMethod($component, 'installerCommand');
+        $componentSource = file_get_contents(base_path('app/Livewire/Automation/ApplicationUpdate.php'));
+        $viewSource = file_get_contents(resource_path('views/livewire/automation/application-update.blade.php'));
+        $desktopSource = file_get_contents(base_path('scripts/desktop/Program.cs'));
 
-        $this->assertSame(
-            ['C:\\SoundMatic Updates\\SoundMatic-Setup-v1.1.46.exe', '--silent-update'],
-            $method->invoke($component, 'C:\\SoundMatic Updates\\SoundMatic-Setup-v1.1.46.exe'),
-        );
+        $this->assertStringContainsString("dispatch('soundmatic-update-ready'", $componentSource);
+        $this->assertStringContainsString('window.chrome.webview.postMessage', $viewSource);
+        $this->assertStringContainsString('WebMessageReceived +=', $desktopSource);
+        $this->assertStringContainsString('TryLaunchUpdateInstaller', $desktopSource);
+        $this->assertStringContainsString('ArgumentList.Add("--silent-update")', $desktopSource);
+        $this->assertStringContainsString('ArgumentList.Add("--detached")', $desktopSource);
+        $this->assertStringContainsString('BeginInvoke(Close)', $desktopSource);
     }
 
     public function test_installer_schedules_downloaded_executable_for_deletion(): void

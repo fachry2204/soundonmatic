@@ -46,7 +46,7 @@ internal static class Program
 
         public MainWindow(string root)
         {
-            this.root = root; Text = "SoundMatic v1.1.55"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = "SoundMatic v1.1.56"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
             FormClosing += (_, _) => ShutdownServices();
@@ -74,6 +74,24 @@ internal static class Program
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(root, "storage", "app", "webview2"));
                 await view.EnsureCoreWebView2Async(environment);
                 view.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                view.CoreWebView2.WebMessageReceived += (_, e) =>
+                {
+                    try
+                    {
+                        using var message = System.Text.Json.JsonDocument.Parse(e.WebMessageAsJson);
+                        var rootMessage = message.RootElement.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? System.Text.Json.JsonDocument.Parse(message.RootElement.GetString() ?? "{}").RootElement.Clone()
+                            : message.RootElement;
+                        if (rootMessage.TryGetProperty("type", out var type)
+                            && type.GetString() == "soundmatic-update-ready"
+                            && rootMessage.TryGetProperty("path", out var installerPath))
+                            TryLaunchUpdateInstaller(installerPath.GetString());
+                    }
+                    catch (Exception error)
+                    {
+                        MessageBox.Show("Installer update gagal dijalankan: " + error.Message, "SoundMatic", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
                 view.CoreWebView2.NavigationStarting += (_, e) =>
                 {
                     if (IsExternalUrl(e.Uri))
@@ -146,6 +164,29 @@ internal static class Program
                 await Task.CompletedTask;
             }
             finally { recoveringServices = false; }
+        }
+
+        private void TryLaunchUpdateInstaller(string? installerPath)
+        {
+            if (string.IsNullOrWhiteSpace(installerPath)) throw new InvalidOperationException("Path installer update kosong.");
+            var fullPath = Path.GetFullPath(installerPath);
+            var updatesDirectory = Path.GetFullPath(Path.Combine(root, "storage", "app", "updates")).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(updatesDirectory, StringComparison.OrdinalIgnoreCase)
+                || !Path.GetFileName(fullPath).StartsWith("SoundMatic-Setup-v", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(Path.GetExtension(fullPath), ".exe", StringComparison.OrdinalIgnoreCase)
+                || !File.Exists(fullPath))
+                throw new InvalidOperationException("Installer update tidak valid atau tidak ditemukan.");
+
+            var installer = new ProcessStartInfo(fullPath)
+            {
+                WorkingDirectory = Path.GetDirectoryName(fullPath)!,
+                UseShellExecute = true,
+            };
+            installer.ArgumentList.Add("--silent-update");
+            installer.ArgumentList.Add("--detached");
+            if (Process.Start(installer) is null)
+                throw new InvalidOperationException("Windows gagal memulai installer update.");
+            BeginInvoke(Close);
         }
 
         private void ShutdownServices()

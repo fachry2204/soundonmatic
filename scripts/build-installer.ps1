@@ -1,4 +1,4 @@
-param([string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.55.exe'))
+param([string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.56.exe'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $stage = Join-Path $PSScriptRoot 'installer\stage'
@@ -7,7 +7,7 @@ $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
 $sevenZipLibrary = 'C:\Program Files\7-Zip\7z.dll'
 if (!(Test-Path $sevenZip) -or !(Test-Path $sevenZipLibrary)) { throw '7-Zip beserta 7z.dll diperlukan untuk membuat installer.' }
 
-$launcherExe = Join-Path $root 'SoundMatic-v1.1.55-portable.exe'
+$launcherExe = Join-Path $root 'SoundMatic-v1.1.56-portable.exe'
 if (!(Test-Path $launcherExe)) {
     Write-Host "$launcherExe belum ada, membangun..."
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-exe.ps1') -Output $launcherExe

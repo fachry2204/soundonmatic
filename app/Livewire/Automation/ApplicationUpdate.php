@@ -6,7 +6,6 @@ namespace App\Livewire\Automation;
 
 use Illuminate\Support\Facades\Http;
 use Livewire\Component;
-use Symfony\Component\Process\Process;
 use Throwable;
 
 final class ApplicationUpdate extends Component
@@ -105,19 +104,13 @@ final class ApplicationUpdate extends Component
         }
 
         if (PHP_OS_FAMILY === 'Windows' && ! app()->runningUnitTests()) {
-            try {
-                // The installer self-detaches before closing SoundMatic. Calling
-                // it directly avoids cmd.exe interpreting a Windows path as a
-                // UNC/network path ("The network is not present or not started").
-                $launcher = new Process($this->installerCommand($path), dirname($path));
-                $launcher->setTimeout(15)->mustRun();
-            } catch (Throwable $error) {
-                $this->message = 'Installer sudah didownload, tetapi gagal dijalankan otomatis. Jalankan manual: '.$path;
-
-                return;
-            }
+            // PHP runs as a child service of the desktop host. Hand the installer
+            // path to WebView2 so the desktop process can launch it independently
+            // and close itself immediately. Launching from this short-lived HTTP
+            // request can dispose the child before its detached bootstrap runs.
             $this->installStarted = true;
-            $this->message = 'Installer update v'.$this->latestVersion.' sudah dijalankan. SoundMatic akan ditutup, diperbarui, lalu dibuka kembali.';
+            $this->message = 'Installer update v'.$this->latestVersion.' siap dijalankan. SoundMatic akan ditutup, diperbarui, lalu dibuka kembali.';
+            $this->dispatch('soundmatic-update-ready', path: $path);
 
             return;
         }
@@ -128,12 +121,6 @@ final class ApplicationUpdate extends Component
     public function render()
     {
         return view('livewire.automation.application-update');
-    }
-
-    /** @return array<int, string> */
-    private function installerCommand(string $path): array
-    {
-        return [$path, '--silent-update'];
     }
 
     private function extractVersion(?string $value): ?string

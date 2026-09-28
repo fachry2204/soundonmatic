@@ -441,14 +441,6 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
                     : (await textNext.count())
                         ? textNext.last()
                         : globalNextCandidates.last();
-            if (!(await next.count())) break;
-            const nextClass = [
-                (await next.getAttribute("class")) ?? "",
-                (await next.locator("xpath=..").getAttribute("class")) ?? "",
-            ].join(" ");
-            const disabled = (await next.getAttribute("aria-disabled")) === "true" || /disabled/.test(nextClass);
-            if (disabled) break;
-            await next.click({ timeout: 5_000 });
             const waitForDifferentFirstRow = async (id: string) => {
                 await page.waitForFunction(
                     ({ id: targetId, previous }) => {
@@ -456,27 +448,40 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
                         return row && (row.textContent ?? '').trim() !== previous.trim();
                     },
                     { id, previous: firstRowBefore },
-                    { timeout: 5_000 },
+                    { timeout: 8_000 },
                 ).catch(() => undefined);
                 return (await table.locator("tbody tr").first().innerText().catch(() => "")).trim() !== firstRowBefore.trim();
             };
-            let pageChanged = tableId ? await waitForDifferentFirstRow(tableId) : false;
-            if (!pageChanged && tableId) {
-                const advancedWithDataTables = await table.evaluate((element) => {
+            let advancedWithDataTables = false;
+            if (tableId) {
+                advancedWithDataTables = await table.evaluate((element) => {
                     const jquery = (window as any).jQuery;
                     if (!jquery?.fn?.DataTable?.isDataTable(element)) return false;
                     const dataTable = jquery(element).DataTable();
                     const info = dataTable.page.info();
                     if (info.page >= info.pages - 1) return false;
-                    dataTable.page("next").draw("page");
+                    dataTable.page(info.page + 1).draw("page");
                     return true;
                 }).catch(() => false);
                 if (advancedWithDataTables) {
-                    req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh next-page control did not redraw; DataTables API fallback applied");
-                    pageChanged = await waitForDifferentFirstRow(tableId);
+                    req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh page advanced through DataTables API");
+                    if (await waitForDifferentFirstRow(tableId)) continue;
                 }
             }
-            if (!pageChanged) {
+            if (advancedWithDataTables) {
+                req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh DataTables API did not redraw the table");
+                break;
+            }
+            if (!(await next.count())) break;
+            const nextClass = [
+                (await next.getAttribute("class")) ?? "",
+                (await next.locator("xpath=..").getAttribute("class")) ?? "",
+            ].join(" ");
+            const disabled = (await next.getAttribute("aria-disabled")) === "true" || /disabled/.test(nextClass);
+            if (disabled) break;
+            req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh DataTables API unavailable; next-page control fallback applied");
+            await next.click({ timeout: 5_000 });
+            if (!tableId || !(await waitForDifferentFirstRow(tableId))) {
                 req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh next page did not redraw the table");
                 break;
             }

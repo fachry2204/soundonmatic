@@ -64,4 +64,19 @@
 
         <div class="info-banner mt-6"><strong>Syarat update</strong><span>GitHub Release harus memakai tag versi seperti v1.1.41 dan memiliki asset installer bernama SoundMatic-Setup-v1.1.41.exe.</span></div>
     </main>
+
+    @script
+    <script>
+        $wire.on('soundmatic-update-ready', ({ path }) => {
+            if (!window.chrome?.webview || typeof path !== 'string' || path.length === 0) {
+                return;
+            }
+
+            window.chrome.webview.postMessage(JSON.stringify({
+                type: 'soundmatic-update-ready',
+                path,
+            }));
+        });
+    </script>
+    @endscript
 </div>
