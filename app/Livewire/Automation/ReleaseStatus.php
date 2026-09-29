@@ -156,14 +156,9 @@ final class ReleaseStatus extends Component
             return;
         }
         $this->selectedJobIds = [];
-        QueueSoundOnStatusChecks::dispatch(auth()->id(), $this->checkSourceTab);
+        QueueSoundOnStatusChecks::dispatch(auth()->id(), 'uploading');
         $this->bulkCheckRequested = true;
-        $label = match ($this->checkSourceTab) {
-            'under_review' => 'Under Review',
-            'uploading' => 'Uploading',
-            default => 'Under Review dan Uploading',
-        };
-        $this->syncMessage = 'Sedang memeriksa tab '.$label.' Soundfresh terhadap SoundOn.';
+        $this->syncMessage = 'Sedang memeriksa maksimal 300 rilisan Uploading Soundfresh yang belum memiliki status SoundOn.';
     }
 
     public function pollStatusUpdates(): void

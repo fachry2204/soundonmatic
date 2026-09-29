@@ -11,8 +11,8 @@
             <div class="flex flex-wrap items-center gap-3">
                 <span class="badge badge--brand">Live · 3 detik</span>
                 <label class="release-filter min-w-48">
-                    <span>Tab Soundfresh</span>
-                    <select wire:model.live="checkSourceTab" aria-label="Pilih tab Soundfresh untuk diperiksa">
+                    <span>Tampilkan data Soundfresh</span>
+                    <select wire:model.live="checkSourceTab" aria-label="Pilih data Soundfresh yang ditampilkan">
                         <option value="under_review">Under Review</option>
                         <option value="uploading">Uploading</option>
                         <option value="both">Keduanya</option>

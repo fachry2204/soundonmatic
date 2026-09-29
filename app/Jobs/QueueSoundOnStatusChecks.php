@@ -24,7 +24,7 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
 
     public function __construct(
         public readonly ?int $userId = null,
-        public readonly string $sourceTab = 'both',
+        public readonly string $sourceTab = 'uploading',
     )
     {
         $this->onQueue('status-checks');
@@ -49,12 +49,12 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
 
             $sourceTab = in_array($this->sourceTab, ['under_review', 'uploading', 'both'], true)
                 ? $this->sourceTab
-                : 'both';
+                : 'uploading';
             $underReviewItems = in_array($sourceTab, ['under_review', 'both'], true)
-                ? collect($worker->underReview(null, $soundfresh->session_state_encrypted))
+                ? collect($worker->underReview(300, $soundfresh->session_state_encrypted))
                 : collect();
             $uploadingItems = in_array($sourceTab, ['uploading', 'both'], true)
-                ? collect($worker->uploading(null, $soundfresh->session_state_encrypted))
+                ? collect($worker->uploading(300, $soundfresh->session_state_encrypted))
                 : collect();
 
             // Status checks intentionally read only the actual Under Review and
@@ -91,7 +91,10 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
 
             $alreadyCheckedReleaseIds = ReleaseJob::query()
                 ->whereIn('soundfresh_release_id', $canonicalItems->pluck('release_id')->filter()->all())
-                ->whereNotNull('soundon_status_checked_at')
+                ->where(function ($query): void {
+                    $query->whereNotNull('soundon_status_checked_at')
+                        ->orWhereNotNull('soundon_release_status');
+                })
                 ->pluck('soundfresh_release_id')
                 ->all();
             $actionableItems = $canonicalItems

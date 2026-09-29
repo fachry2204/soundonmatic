@@ -461,15 +461,15 @@ final class ReleaseStatusTest extends TestCase
         Livewire::test(ReleaseStatus::class)
             ->call('refreshSoundOnStatuses')
             ->assertSet('bulkCheckRequested', true)
-            ->assertSet('syncMessage', 'Sedang memeriksa tab Under Review dan Uploading Soundfresh terhadap SoundOn.');
+            ->assertSet('syncMessage', 'Sedang memeriksa maksimal 300 rilisan Uploading Soundfresh yang belum memiliki status SoundOn.');
 
         $this->assertDatabaseHas('release_jobs', ['id' => $existing->id, 'soundon_check_status' => 'detected']);
 
         Queue::assertPushed(QueueSoundOnStatusChecks::class);
-        Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($queued) => $queued->queue === 'status-checks');
+        Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($queued) => $queued->queue === 'status-checks' && $queued->sourceTab === 'uploading');
         $this->assertDatabaseMissing('release_jobs', ['soundfresh_release_id' => 'SF-UNDER-REVIEW-1']);
 
-        app()->call([new QueueSoundOnStatusChecks($viewer->id), 'handle']);
+        app()->call([new QueueSoundOnStatusChecks($viewer->id, 'both'), 'handle']);
 
         $underReviewJob = ReleaseJob::query()->where('soundfresh_release_id', 'SF-UNDER-REVIEW-1')->sole();
         $uploadingJob = ReleaseJob::query()->where('soundfresh_release_id', 'SF-UPLOADING-1')->sole();
@@ -544,15 +544,64 @@ final class ReleaseStatusTest extends TestCase
         }
 
         Livewire::test(ReleaseStatus::class)
-            ->assertSee('Tab Soundfresh')
+            ->assertSee('Tampilkan data Soundfresh')
             ->assertSee('Under Review')
             ->assertSee('Uploading')
             ->assertSee('Keduanya')
             ->set('checkSourceTab', 'uploading')
             ->call('refreshSoundOnStatuses')
-            ->assertSet('syncMessage', 'Sedang memeriksa tab Uploading Soundfresh terhadap SoundOn.');
+            ->assertSet('syncMessage', 'Sedang memeriksa maksimal 300 rilisan Uploading Soundfresh yang belum memiliki status SoundOn.');
 
         Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($queued) => $queued->sourceTab === 'uploading');
+    }
+
+    public function test_bulk_status_check_reads_at_most_300_uploading_releases_and_skips_saved_review_or_rejection_statuses(): void
+    {
+        AutomationAccount::query()->create([
+            'platform' => 'soundfresh',
+            'name' => 'Soundfresh',
+            'status' => 'active',
+            'session_state_encrypted' => ['cookies' => []],
+            'last_authenticated_at' => now(),
+        ]);
+        Queue::fake();
+        $run = AutomationRun::query()->create(['status' => 'completed']);
+        foreach ([['SF-SAVED-REVIEW', 'under_review'], ['SF-SAVED-REJECTED', 'not_approved']] as [$releaseId, $status]) {
+            ReleaseJob::query()->create([
+                'automation_run_id' => $run->id,
+                'soundfresh_release_id' => $releaseId,
+                'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/'.$releaseId,
+                'idempotency_key' => 'soundfresh:'.$releaseId.':soundon',
+                'release_title' => $releaseId,
+                'status' => 'completed',
+                'checkpoint' => 'discovered',
+                'soundfresh_workflow_status' => 'uploading',
+                'soundon_release_status' => $status,
+                'soundon_check_status' => 'detected',
+                'soundon_check_progress' => 100,
+                'soundon_status_checked_at' => null,
+            ]);
+        }
+        Http::fake(function ($request) {
+            $this->assertSame('uploading', $request['options']['release_status'] ?? null);
+            $this->assertSame(300, $request['options']['max_items'] ?? null);
+
+            return Http::response(['success' => true, 'data' => ['items' => [
+                ['release_id' => 'SF-SAVED-REVIEW', 'title' => 'Review Lama', 'primary_artist' => '', 'detail_url' => 'https://cms.soundfresh.id/releases/SF-SAVED-REVIEW', 'track_count' => 1, 'workflow_status' => 'uploading'],
+                ['release_id' => 'SF-SAVED-REJECTED', 'title' => 'Reject Lama', 'primary_artist' => '', 'detail_url' => 'https://cms.soundfresh.id/releases/SF-SAVED-REJECTED', 'track_count' => 1, 'workflow_status' => 'uploading'],
+                ['release_id' => 'SF-NEW-UPLOADING', 'title' => 'Upload Baru', 'primary_artist' => '', 'detail_url' => 'https://cms.soundfresh.id/releases/SF-NEW-UPLOADING', 'track_count' => 1, 'workflow_status' => 'uploading'],
+            ]]]);
+        });
+
+        app()->call([new QueueSoundOnStatusChecks(null, 'uploading'), 'handle']);
+
+        Queue::assertPushed(CheckSoundOnReleaseStatus::class, function ($queued): bool {
+            $ids = $queued->releaseJobIds;
+            return count($ids) === 1
+                && ReleaseJob::query()->findOrFail($ids[0])->soundfresh_release_id === 'SF-NEW-UPLOADING';
+        });
+        $this->assertSame('detected', ReleaseJob::query()->where('soundfresh_release_id', 'SF-SAVED-REVIEW')->sole()->soundon_check_status);
+        $this->assertSame('detected', ReleaseJob::query()->where('soundfresh_release_id', 'SF-SAVED-REJECTED')->sole()->soundon_check_status);
     }
 
     public function test_uploading_selection_does_not_read_under_review_tab(): void
