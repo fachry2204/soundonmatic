@@ -219,7 +219,7 @@
     "C:\\Users\\Administrator\\.nuget\\packages\\": {}
   },
   "project": {
-    "version": "1.1.60",
+    "version": "1.1.64",
     "restore": {
       "projectUniqueName": "D:\\xampp\\htdocs\\soundonmatic\\scripts\\installer\\SoundOnMatic.Installer.csproj",
       "projectName": "SoundMatic-Setup",
