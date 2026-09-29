@@ -88,5 +88,26 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Laravel's default behaviour converts TokenMismatchException to
+        // HttpException(419) and displays a generic error page.  In the
+        // desktop WebView2 context the session file may not exist yet when
+        // the very first login POST arrives (just after install / update),
+        // producing the raw "419 | PAGE EXPIRED" screen.  Redirect back to
+        // /login with a friendly message instead so the user can simply
+        // retry without any confusing error page.
+        $exceptions->render(function (
+            \Symfony\Component\HttpKernel\Exception\HttpException $exception,
+            \Illuminate\Http\Request $request,
+        ): ?\Illuminate\Http\RedirectResponse {
+            if ($exception->getStatusCode() !== 419
+                || ! $request->isMethod('POST')
+                || ! $request->is('login')
+                || $request->expectsJson()) {
+                return null;
+            }
+
+            return redirect()->route('login')
+                ->withErrors(['username' => 'Sesi login telah kedaluwarsa atau tidak tersedia. Silakan coba masuk kembali.'])
+                ->withInput($request->except(['password', '_token']));
+        });
     })->create();

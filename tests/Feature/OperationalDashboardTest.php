@@ -20,6 +20,24 @@ class OperationalDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_expired_login_form_redirects_back_to_login_instead_of_showing_page_expired(): void
+    {
+        // Simulate a real expired CSRF token by sending a POST with the full
+        // middleware stack active and an invalid _token value.  Production
+        // Laravel converts TokenMismatchException to HttpException(419).
+        // Our exception handler must intercept it and redirect to /login.
+        $response = $this->withoutExceptionHandling(
+            except: [\Illuminate\Session\TokenMismatchException::class]
+        )->from('/login')->post('/login', [
+            'username' => 'admin',
+            'password' => 'admin',
+            '_token' => 'expired-token',
+        ]);
+
+        $response->assertRedirect('/login');
+        $response->assertSessionHasErrors('username');
+    }
+
     public function test_operational_pages_require_authentication(): void
     {
         $this->get('/mappings')->assertRedirect('/login');
