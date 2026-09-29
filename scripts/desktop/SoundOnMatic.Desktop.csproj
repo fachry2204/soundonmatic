@@ -4,7 +4,7 @@
     <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
     <AssemblyName>SoundMatic</AssemblyName><RootNamespace>SoundMatic.Desktop</RootNamespace>
     <ApplicationIcon>..\assets\soundmatic-icon.ico</ApplicationIcon><Product>SoundMatic</Product><Title>SoundMatic</Title><Company>Soundfresh.ID</Company>
-    <Version>1.1.64</Version><AssemblyVersion>1.1.64.0</AssemblyVersion><FileVersion>1.1.64.0</FileVersion><InformationalVersion>1.1.64</InformationalVersion>
+    <Version>1.1.65</Version><AssemblyVersion>1.1.65.0</AssemblyVersion><FileVersion>1.1.65.0</FileVersion><InformationalVersion>1.1.65</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />

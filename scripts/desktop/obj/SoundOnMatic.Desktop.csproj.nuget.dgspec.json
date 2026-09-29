@@ -5,7 +5,7 @@
   },
   "projects": {
     "D:\\xampp\\htdocs\\soundonmatic\\scripts\\desktop\\SoundOnMatic.Desktop.csproj": {
-      "version": "1.1.64",
+      "version": "1.1.65",
       "restore": {
         "projectUniqueName": "D:\\xampp\\htdocs\\soundonmatic\\scripts\\desktop\\SoundOnMatic.Desktop.csproj",
         "projectName": "SoundMatic",

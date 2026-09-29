@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("Soundfresh.ID")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.1.64.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.1.64+f77b9899757291ef8f3cbb4d13f4e5e6fc889867")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("1.1.65.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.1.65+979bea7c0aff85e875ffe776cfa1e62f555e0454")]
 [assembly: System.Reflection.AssemblyProductAttribute("SoundMatic")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SoundMatic")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.1.64.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("1.1.65.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 

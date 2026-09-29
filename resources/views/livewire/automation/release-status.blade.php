@@ -49,17 +49,20 @@
 
         <section class="panel mt-6">
             <header class="panel-header release-status-toolbar">
-                <div>
+                <div class="flex-1">
                     <h2 class="panel-title">Daftar status rilisan</h2>
-            <p class="panel-copy">Tab Status Baru Diambil menampilkan hasil scan Soundfresh terbaru; Under Review dan Not Approved yang sudah tersimpan tidak diantrikan ulang.</p>
+                    <p class="panel-copy">Tab Status Baru Diambil menampilkan hasil scan Soundfresh terbaru; Under Review dan Not Approved yang sudah tersimpan tidak diantrikan ulang.</p>
                 </div>
+            </header>
+            
+            <div class="border-b border-slate-100 bg-slate-50/50 px-5 py-4">
                 <div class="release-status-filters">
                     <label class="release-filter release-filter--search"><span>Cari rilisan</span><input wire:model.live.debounce.400ms="search" type="search" placeholder="Judul, artis, ID Soundfresh atau draft"></label>
                     <label class="release-filter"><span>Status pemeriksaan</span><select wire:model.live="status"><option value="all">Semua status</option><option value="queued">Menunggu</option><option value="checking">Sedang diperiksa</option><option value="detected">Terdeteksi</option><option value="not_found">Tidak ditemukan</option><option value="failed">Gagal</option></select></label>
                     <label class="release-filter"><span>Status SoundOn</span><select wire:model.live="soundOnStatus"><option value="new">Status Baru Diambil</option><option value="all">Semua</option><option value="under_review">Under Review</option><option value="delivery">Delivered</option><option value="approved">Approved</option><option value="not_approved">Not Approved</option><option value="live">Live</option><option value="pending">Belum terdeteksi</option></select></label>
-                    <button type="button" wire:click="resetFilters" class="secondary-button">Reset</button>
+                    <button type="button" wire:click="resetFilters" class="secondary-button" style="height: 40px; margin-bottom: 2px;">Reset</button>
                 </div>
-            </header>
+            </div>
 
             @if ($syncMessage)<div class="mx-5 mt-4 rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600">{{ $syncMessage }} @if (str_contains($syncMessage, 'Pengaturan Platform'))<a href="{{ route('automation.sessions') }}" class="font-semibold underline">Buka Pengaturan Platform</a>@endif</div>@endif
 
