@@ -13,6 +13,7 @@ use App\Models\AutomationAccount;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
 use App\Models\User;
+use App\Enums\AutomationRunStatus;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AccessControlSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -59,6 +60,32 @@ final class ReleaseStatusTest extends TestCase
             ->assertDontSee('Checkpoint')
             ->assertSee('Rilisan Status Pengujian')
             ->assertSee('DRAFT-STATUS-1');
+    }
+
+    public function test_all_collected_uploading_rows_are_displayed_without_a_row_cap(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        $run = AutomationRun::query()->create(['status' => 'completed']);
+        for ($i = 1; $i <= 337; $i++) {
+            ReleaseJob::query()->create([
+                'automation_run_id' => $run->id,
+                'soundfresh_release_id' => 'ALL-'.$i,
+                'soundfresh_release_url' => 'https://soundfresh.example/releases/'.$i,
+                'idempotency_key' => 'all-uploading-'.$i,
+                'release_title' => 'Uploading '.$i,
+                'status' => 'completed',
+                'checkpoint' => 'discovered',
+                'soundfresh_workflow_status' => 'uploading',
+                'soundon_check_status' => 'detected',
+            ]);
+        }
+        Livewire::test(ReleaseStatus::class)
+            ->assertViewHas('jobs', fn ($jobs) => $jobs->count() === 337)
+            ->assertViewHas('totalJobs', 337)
+            ->assertDontSeeHtml('wire:model.live="checkSourceTab"');
     }
 
     public function test_release_status_requires_authentication(): void
@@ -366,6 +393,87 @@ final class ReleaseStatusTest extends TestCase
             ->assertSee('Rilis Live');
     }
 
+    public function test_status_baru_diambil_shows_only_latest_scan_and_excludes_saved_review_and_rejection(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+
+        $oldRun = AutomationRun::query()->create([
+            'status' => 'completed',
+            'summary_json' => ['purpose' => 'soundon_status_check'],
+            'updated_at' => now()->subMinute(),
+        ]);
+        $latestRun = AutomationRun::query()->create([
+            'status' => 'completed',
+            'summary_json' => ['purpose' => 'soundon_status_check'],
+            'updated_at' => now(),
+        ]);
+        foreach ([
+            [$oldRun, 'SF-OLD-SNAPSHOT', 'Rilisan Scan Lama', null],
+            [$latestRun, 'SF-NEW-SNAPSHOT', 'Rilisan Scan Terbaru', null],
+            [$latestRun, 'SF-REVIEW-SNAPSHOT', 'Rilisan Sudah Review', 'under_review'],
+            [$latestRun, 'SF-REJECT-SNAPSHOT', 'Rilisan Sudah Reject', 'not_approved'],
+        ] as [$run, $releaseId, $title, $soundOnStatus]) {
+            ReleaseJob::query()->create([
+                'automation_run_id' => $run->id,
+                'soundfresh_release_id' => $releaseId,
+                'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/'.$releaseId,
+                'idempotency_key' => 'status-snapshot-'.$releaseId,
+                'release_title' => $title,
+                'status' => 'completed', 'checkpoint' => 'discovered',
+                'soundfresh_workflow_status' => 'uploading',
+                'soundon_release_status' => $soundOnStatus,
+                'soundon_check_status' => 'detected',
+            ]);
+        }
+
+        Livewire::test(ReleaseStatus::class)
+            ->assertSet('soundOnStatus', 'new')
+            ->assertSee('Status Baru Diambil')
+            ->assertSee('Rilisan Scan Terbaru')
+            ->assertDontSee('Rilisan Scan Lama')
+            ->assertDontSee('Rilisan Sudah Review')
+            ->assertDontSee('Rilisan Sudah Reject')
+            ->call('filterBySoundOnStatus', 'under_review')
+            ->assertSee('Rilisan Sudah Review');
+    }
+
+    public function test_starting_full_status_refresh_clears_the_previous_new_status_snapshot(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        Queue::fake();
+        foreach (['soundfresh' => 'Soundfresh', 'soundon' => 'SoundOn'] as $platform => $name) {
+            AutomationAccount::query()->create([
+                'platform' => $platform, 'name' => $name, 'status' => 'active',
+                'session_state_encrypted' => ['cookies' => []], 'last_authenticated_at' => now(),
+            ]);
+        }
+        $oldRun = AutomationRun::query()->create([
+            'status' => 'completed', 'summary_json' => ['purpose' => 'soundon_status_check'],
+        ]);
+        ReleaseJob::query()->create([
+            'automation_run_id' => $oldRun->id,
+            'soundfresh_release_id' => 'SF-OLD-CLEAR',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/old-clear',
+            'idempotency_key' => 'status-old-clear', 'release_title' => 'Tabel Lama',
+            'status' => 'completed', 'checkpoint' => 'discovered',
+            'soundfresh_workflow_status' => 'uploading', 'soundon_check_status' => 'detected',
+        ]);
+
+        Livewire::test(ReleaseStatus::class)
+            ->assertSee('Tabel Lama')
+            ->call('refreshSoundOnStatuses')
+            ->assertSet('bulkCheckRequested', true)
+            ->assertDontSee('Tabel Lama');
+
+        Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($job): bool => filled($job->statusRunId));
+    }
+
     public function test_today_and_overdue_review_cards_only_count_and_filter_under_review_releases(): void
     {
         $this->seed(AccessControlSeeder::class);
@@ -412,7 +520,7 @@ final class ReleaseStatusTest extends TestCase
             ->assertDontSee('Terlewat Delivered');
     }
 
-    public function test_status_refresh_uses_only_soundfresh_under_review_and_uploading_releases(): void
+    public function test_status_refresh_uses_soundfresh_uploading_releases_only(): void
     {
         $this->seed(AccessControlSeeder::class);
         $viewer = User::factory()->create();
@@ -435,11 +543,11 @@ final class ReleaseStatusTest extends TestCase
         Http::fake(function ($request) {
             $this->assertTrue(str_ends_with($request->url(), '/v1/soundfresh/pending'));
             $status = $request['options']['release_status'] ?? null;
-            $this->assertContains($status, ['under_review', 'uploading']);
+            $this->assertSame('uploading', $status);
 
             return Http::response(['success' => true, 'data' => ['items' => [[
-                'release_id' => $status === 'under_review' ? 'SF-UNDER-REVIEW-1' : 'SF-UPLOADING-1',
-                'title' => $status === 'under_review' ? 'Rilisan Under Review' : 'Rilisan Uploading',
+                'release_id' => 'SF-UPLOADING-1',
+                'title' => 'Rilisan Uploading',
                 'primary_artist' => '',
                 'detail_url' => 'https://soundfresh.example/releases/'.$status,
                 'track_count' => 2,
@@ -461,24 +569,18 @@ final class ReleaseStatusTest extends TestCase
         Livewire::test(ReleaseStatus::class)
             ->call('refreshSoundOnStatuses')
             ->assertSet('bulkCheckRequested', true)
-            ->assertSet('syncMessage', 'Sedang memeriksa maksimal 300 rilisan Uploading Soundfresh yang belum memiliki status SoundOn.');
+            ->assertSet('syncMessage', 'Sedang mengambil seluruh rilisan Uploading Soundfresh dan memeriksa ulang status SoundOn.');
 
         $this->assertDatabaseHas('release_jobs', ['id' => $existing->id, 'soundon_check_status' => 'detected']);
 
         Queue::assertPushed(QueueSoundOnStatusChecks::class);
         Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($queued) => $queued->queue === 'status-checks' && $queued->sourceTab === 'uploading');
-        $this->assertDatabaseMissing('release_jobs', ['soundfresh_release_id' => 'SF-UNDER-REVIEW-1']);
-
         app()->call([new QueueSoundOnStatusChecks($viewer->id, 'both'), 'handle']);
 
-        $underReviewJob = ReleaseJob::query()->where('soundfresh_release_id', 'SF-UNDER-REVIEW-1')->sole();
         $uploadingJob = ReleaseJob::query()->where('soundfresh_release_id', 'SF-UPLOADING-1')->sole();
-        $this->assertSame('queued', $underReviewJob->soundon_check_status);
         $this->assertSame(5, $uploadingJob->soundon_check_progress);
-        $this->assertSame('September 9, 2026', data_get($underReviewJob->metadata_snapshot_json, 'release_date'));
         $this->assertSame('September 9, 2026', data_get($uploadingJob->metadata_snapshot_json, 'release_date'));
-        $statusRun = AutomationRun::query()->findOrFail($underReviewJob->automation_run_id);
-        Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => in_array($underReviewJob->id, $queued->releaseJobIds, true) && $queued->sourceStatus === 'under_review');
+        $statusRun = AutomationRun::query()->findOrFail($uploadingJob->automation_run_id);
         Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => in_array($uploadingJob->id, $queued->releaseJobIds, true) && $queued->sourceStatus === 'uploading');
         Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => $queued->queue === 'status-checks');
         $this->assertSame('running', $statusRun->status->value);
@@ -529,7 +631,7 @@ final class ReleaseStatusTest extends TestCase
         $this->assertDatabaseHas('jobs', ['queue' => 'release-automation']);
     }
 
-    public function test_operator_can_select_only_uploading_tab_for_status_check(): void
+    public function test_status_page_removes_the_soundfresh_source_selector(): void
     {
         $this->seed(AccessControlSeeder::class);
         $viewer = User::factory()->create();
@@ -544,18 +646,17 @@ final class ReleaseStatusTest extends TestCase
         }
 
         Livewire::test(ReleaseStatus::class)
-            ->assertSee('Tampilkan data Soundfresh')
-            ->assertSee('Under Review')
-            ->assertSee('Uploading')
-            ->assertSee('Keduanya')
-            ->set('checkSourceTab', 'uploading')
+            ->assertDontSee('Tampilkan data Soundfresh')
+            ->assertDontSeeHtml('wire:model.live="checkSourceTab"')
+            ->assertSee('Status Under Review')
+            ->assertSee('Status Not Approve')
             ->call('refreshSoundOnStatuses')
-            ->assertSet('syncMessage', 'Sedang memeriksa maksimal 300 rilisan Uploading Soundfresh yang belum memiliki status SoundOn.');
+            ->assertSet('syncMessage', 'Sedang mengambil seluruh rilisan Uploading Soundfresh dan memeriksa ulang status SoundOn.');
 
         Queue::assertPushed(QueueSoundOnStatusChecks::class, fn ($queued) => $queued->sourceTab === 'uploading');
     }
 
-    public function test_bulk_status_check_reads_at_most_300_uploading_releases_and_skips_saved_review_or_rejection_statuses(): void
+    public function test_bulk_status_check_reads_all_uploading_releases_and_skips_saved_review_or_rejection_statuses(): void
     {
         AutomationAccount::query()->create([
             'platform' => 'soundfresh',
@@ -584,7 +685,8 @@ final class ReleaseStatusTest extends TestCase
         }
         Http::fake(function ($request) {
             $this->assertSame('uploading', $request['options']['release_status'] ?? null);
-            $this->assertSame(300, $request['options']['max_items'] ?? null);
+            $this->assertArrayHasKey('max_items', $request['options']);
+            $this->assertNull($request['options']['max_items']);
 
             return Http::response(['success' => true, 'data' => ['items' => [
                 ['release_id' => 'SF-SAVED-REVIEW', 'title' => 'Review Lama', 'primary_artist' => '', 'detail_url' => 'https://cms.soundfresh.id/releases/SF-SAVED-REVIEW', 'track_count' => 1, 'workflow_status' => 'uploading'],
@@ -620,7 +722,7 @@ final class ReleaseStatusTest extends TestCase
             return Http::response(['success' => true, 'data' => ['items' => []]]);
         });
 
-        app()->call([new QueueSoundOnStatusChecks(null, 'uploading'), 'handle']);
+        app()->call([new QueueSoundOnStatusChecks(null, 'both'), 'handle']);
 
         Http::assertSentCount(1);
         Queue::assertNotPushed(CheckSoundOnReleaseStatus::class);
@@ -667,7 +769,7 @@ final class ReleaseStatusTest extends TestCase
             ->assertDontSee('Jangan Tampilkan Verified');
     }
 
-    public function test_bulk_status_check_skips_already_checked_releases_and_keeps_saved_statuses(): void
+    public function test_bulk_status_check_skips_saved_not_approved_releases_and_checks_new_uploads(): void
     {
         $this->seed(AccessControlSeeder::class);
         $viewer = User::factory()->create();
@@ -725,7 +827,6 @@ final class ReleaseStatusTest extends TestCase
         $new = ReleaseJob::query()->where('soundfresh_release_id', 'SF-NEW-STATUS')->sole();
         $this->assertSame('queued', $new->soundon_check_status);
         Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => $queued->releaseJobIds === [$new->id]);
-        Queue::assertNotPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => in_array($checked->id, $queued->releaseJobIds, true));
     }
 
     public function test_selected_soundon_status_tab_can_be_rechecked_without_checking_other_tabs(): void
@@ -894,6 +995,45 @@ final class ReleaseStatusTest extends TestCase
         $this->assertSame('failed', $job->soundon_check_status);
         $this->assertSame(100, $job->soundon_check_progress);
         $this->assertNotNull($job->soundon_check_finished_at);
+    }
+
+    public function test_poll_recovers_an_abandoned_status_run_and_unlocks_the_scan(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        $staleAt = now()->subHours(2);
+        $run = AutomationRun::query()->create([
+            'status' => 'running',
+            'started_at' => $staleAt,
+            'created_at' => $staleAt,
+            'updated_at' => $staleAt,
+            'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+        ]);
+        $job = ReleaseJob::query()->create([
+            'automation_run_id' => $run->id,
+            'soundfresh_release_id' => 'SF-STALE-STATUS-1',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/stale-status',
+            'idempotency_key' => 'stale-status-check-1',
+            'release_title' => 'Pemeriksaan Lama',
+            'track_count' => 1,
+            'status' => 'completed',
+            'checkpoint' => 'draft_saved',
+            'soundon_check_status' => 'checking',
+            'soundon_check_progress' => 20,
+        ]);
+
+        Livewire::test(ReleaseStatus::class)
+            ->set('bulkCheckRequested', true)
+            ->call('pollStatusUpdates')
+            ->assertSet('bulkCheckRequested', false)
+            ->assertSet('syncMessage', 'Pemeriksaan yang macet telah dihentikan dengan aman. Status rilisan yang belum selesai ditandai gagal dan dapat diperiksa ulang.');
+
+        $this->assertSame(AutomationRunStatus::Failed, $run->fresh()->status);
+        $this->assertNotNull($run->fresh()->finished_at);
+        $this->assertSame('failed', $job->fresh()->soundon_check_status);
+        $this->assertNotNull($job->fresh()->soundon_check_finished_at);
     }
 
     public function test_complete_identifiers_can_be_sent_to_soundfresh(): void

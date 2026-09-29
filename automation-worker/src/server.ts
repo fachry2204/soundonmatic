@@ -441,36 +441,32 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
                     : (await textNext.count())
                         ? textNext.last()
                         : globalNextCandidates.last();
-            const waitForDifferentFirstRow = async (id: string) => {
-                await page.waitForFunction(
-                    ({ id: targetId, previous }) => {
-                        const row = document.querySelector(`#${CSS.escape(targetId)} tbody tr`);
-                        return row && (row.textContent ?? '').trim() !== previous.trim();
-                    },
-                    { id, previous: firstRowBefore },
-                    { timeout: 8_000 },
-                ).catch(() => undefined);
-                return (await table.locator("tbody tr").first().innerText().catch(() => "")).trim() !== firstRowBefore.trim();
-            };
-            let advancedWithDataTables = false;
-            if (tableId) {
-                advancedWithDataTables = await table.evaluate((element) => {
-                    const jquery = (window as any).jQuery;
-                    if (!jquery?.fn?.DataTable?.isDataTable(element)) return false;
-                    const dataTable = jquery(element).DataTable();
-                    const info = dataTable.page.info();
-                    if (info.page >= info.pages - 1) return false;
-                    dataTable.page(info.page + 1).draw("page");
-                    return true;
-                }).catch(() => false);
-                if (advancedWithDataTables) {
-                    req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh page advanced through DataTables API");
-                    if (await waitForDifferentFirstRow(tableId)) continue;
+            const waitForDifferentFirstRow = async () => {
+                for (let attempt = 0; attempt < 80; attempt++) {
+                    const current = (await table.locator("tbody tr").first().innerText().catch(() => "")).trim();
+                    if (current && current !== firstRowBefore.trim()) return true;
+                    await page.waitForTimeout(100);
                 }
+                return false;
+            };
+            // Do not require a table id here: some Soundfresh accounts render
+            // the Uploading table without one. Requiring an id silently ended
+            // collection after its first page (often exactly 100 rows).
+            const advancedWithDataTables = await table.evaluate((element) => {
+                const jquery = (window as any).jQuery;
+                if (!jquery?.fn?.DataTable?.isDataTable(element)) return false;
+                const dataTable = jquery(element).DataTable();
+                const info = dataTable.page.info();
+                if (info.page >= info.pages - 1) return false;
+                dataTable.page(info.page + 1).draw("page");
+                return true;
+            }).catch(() => false);
+            if (advancedWithDataTables) {
+                req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh page advanced through DataTables API");
+                if (await waitForDifferentFirstRow()) continue;
             }
             if (advancedWithDataTables) {
-                req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh DataTables API did not redraw the table");
-                break;
+                throw new Error("SOUNDFRESH_PAGINATION_STALLED: halaman Soundfresh tidak berubah; pengambilan belum lengkap.");
             }
             if (!(await next.count())) break;
             const nextClass = [
@@ -481,9 +477,8 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             if (disabled) break;
             req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh DataTables API unavailable; next-page control fallback applied");
             await next.click({ timeout: 5_000 });
-            if (!tableId || !(await waitForDifferentFirstRow(tableId))) {
-                req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh next page did not redraw the table");
-                break;
+            if (!(await waitForDifferentFirstRow())) {
+                throw new Error("SOUNDFRESH_PAGINATION_STALLED: halaman Soundfresh tidak berubah; pengambilan belum lengkap.");
             }
         }
 

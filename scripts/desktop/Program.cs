@@ -39,6 +39,7 @@ internal static class Program
         private readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "Menjalankan SoundMatic...", Font = new Font("Segoe UI", 12) };
         private readonly WebView2 view = new() { Dock = DockStyle.Fill, Visible = false };
         private readonly System.Windows.Forms.Timer serviceMonitor = new() { Interval = 5000 };
+        private readonly Dictionary<string, Process> ownedServices = new(StringComparer.OrdinalIgnoreCase);
         private string automationKey = "";
         private string browserExecutable = "";
         private bool recoveringServices;
@@ -46,7 +47,7 @@ internal static class Program
 
         public MainWindow(string root)
         {
-            this.root = root; Text = "SoundMatic v1.1.59"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = "SoundMatic v1.1.60"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
             FormClosing += (_, _) => ShutdownServices();
@@ -119,11 +120,11 @@ internal static class Program
 
         private void StartAllServices()
         {
-            Start("app", Php(root), $"artisan serve --host=127.0.0.1 --port={AppPort}", root, automationKey);
-            Start("scheduler", Php(root), "artisan schedule:work --no-interaction", root, automationKey);
+            Start("app", Php(root), ["artisan", "serve", "--host=127.0.0.1", $"--port={AppPort}"], root, automationKey);
+            Start("scheduler", Php(root), ["artisan", "schedule:work", "--no-interaction"], root, automationKey);
             StartQueueWorker("release-automation,default", "release-queue-worker.pid", "release-worker.log", "release-worker-error.log");
             StartQueueWorker("status-checks", "status-queue-worker.pid", "status-worker.log", "status-worker-error.log");
-            Start("worker", Node(root), "--env-file=.env dist/server.js", Path.Combine(root, "automation-worker"), automationKey);
+            Start("worker", Node(root), ["--env-file=.env", "dist/server.js"], Path.Combine(root, "automation-worker"), automationKey);
         }
 
         private void RecoverInterruptedAutomation()
@@ -157,7 +158,7 @@ internal static class Program
             recoveringServices = true;
             try
             {
-                if (!PortOpen(AppPort)) Start("app", Php(root), $"artisan serve --host=127.0.0.1 --port={AppPort}", root, automationKey);
+                if (!PortOpen(AppPort)) Start("app", Php(root), ["artisan", "serve", "--host=127.0.0.1", $"--port={AppPort}"], root, automationKey);
                 // Worker lifecycle belongs to the dashboard after startup.
                 // Restarting workers every five seconds races with Stop and
                 // pending collection reset, creating duplicate consumers.
@@ -196,7 +197,7 @@ internal static class Program
             serviceMonitor.Stop();
             StopChildProcesses();
             StopOwnedServices();
-            for (var i = 0; i < 20 && (PortOpen(AppPort) || PortOpen(WorkerPort)); i++) Thread.Sleep(100);
+            for (var i = 0; i < 80 && (PortOpen(AppPort) || PortOpen(WorkerPort)); i++) Thread.Sleep(100);
         }
 
         private static void StopChildProcesses()
@@ -215,23 +216,89 @@ internal static class Program
 
         private void StopOwnedServices()
         {
+            // Stop the exact Process instances started by this desktop host.
+            // Detached `cmd start /B` launches outlived the window and lost
+            // ownership of Node and the Playwright browser child processes.
+            foreach (var process in ownedServices.Values.ToArray())
+                KillProcessTree(process);
+            ownedServices.Clear();
+
+            var appDirectory = Path.Combine(root, "storage", "app");
+            Directory.CreateDirectory(appDirectory);
+            foreach (var name in WorkerPidFiles)
+            {
+                var pidPath = Path.Combine(appDirectory, name);
+                if (File.Exists(pidPath) && int.TryParse(File.ReadAllText(pidPath).Trim(), out var pid))
+                    KillBundledProcessTree(pid);
+            }
+
+            // Also stop orphaned processes from older builds, but only when
+            // they use this installation's private PHP or Node executable.
             try
             {
-                using var query = new ManagementObjectSearcher("SELECT ProcessId, Name, CommandLine FROM Win32_Process WHERE Name='php.exe' OR Name='node.exe'");
+                using var query = new ManagementObjectSearcher("SELECT ProcessId, Name, ExecutablePath FROM Win32_Process WHERE Name='php.exe' OR Name='node.exe'");
                 foreach (ManagementObject process in query.Get())
                 {
-                    var command = (string?)process["CommandLine"] ?? "";
-                    var isApp = (command.Contains("artisan serve", StringComparison.OrdinalIgnoreCase) && command.Contains($"port={AppPort}", StringComparison.OrdinalIgnoreCase))
-                        || (command.Contains($"127.0.0.1:{AppPort}", StringComparison.OrdinalIgnoreCase) && command.Contains("server.php", StringComparison.OrdinalIgnoreCase));
-                    var isQueue = command.Contains("queue:work", StringComparison.OrdinalIgnoreCase)
-                        && (command.Contains("release-automation", StringComparison.OrdinalIgnoreCase) || command.Contains("status-checks", StringComparison.OrdinalIgnoreCase));
-                    var isScheduler = command.Contains("schedule:work", StringComparison.OrdinalIgnoreCase);
-                    var isWorker = command.Contains("--env-file=.env", StringComparison.OrdinalIgnoreCase) && command.Contains("dist/server.js", StringComparison.OrdinalIgnoreCase);
-                    if (!isApp && !isQueue && !isScheduler && !isWorker) continue;
-                    try { Process.GetProcessById(Convert.ToInt32(process["ProcessId"])).Kill(true); } catch { }
+                    if (!IsBundledRuntime((string?)process["ExecutablePath"])) continue;
+                    try { KillProcessTree(Process.GetProcessById(Convert.ToInt32(process["ProcessId"]))); } catch { }
                 }
             }
             catch { }
+
+            for (var attempt = 0; attempt < 30 && HasBundledRuntimeProcesses(); attempt++) Thread.Sleep(100);
+            CleanupWorkerMarkers(appDirectory);
+        }
+
+        private static readonly string[] WorkerPidFiles = [
+            "desktop-app.pid", "desktop-scheduler.pid", "automation-worker-desktop.pid",
+            "automation-worker.pid", "release-queue-worker.pid", "status-queue-worker.pid", "laravel-server.pid",
+        ];
+
+        private void KillBundledProcessTree(int processId)
+        {
+            try
+            {
+                var process = Process.GetProcessById(processId);
+                if (IsBundledRuntime(process.MainModule?.FileName)) KillProcessTree(process);
+            }
+            catch { }
+        }
+
+        private static void KillProcessTree(Process process)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+            try { process.WaitForExit(5_000); } catch { }
+        }
+
+        private bool HasBundledRuntimeProcesses()
+        {
+            try
+            {
+                using var query = new ManagementObjectSearcher("SELECT ExecutablePath FROM Win32_Process WHERE Name='php.exe' OR Name='node.exe'");
+                return query.Get().Cast<ManagementObject>().Any(process => IsBundledRuntime((string?)process["ExecutablePath"]));
+            }
+            catch { return false; }
+        }
+
+        private bool IsBundledRuntime(string? executable)
+        {
+            if (string.IsNullOrWhiteSpace(executable)) return false;
+            return string.Equals(Path.GetFullPath(executable), Path.GetFullPath(Php(root)), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(Path.GetFullPath(executable), Path.GetFullPath(Node(root)), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void CleanupWorkerMarkers(string appDirectory)
+        {
+            foreach (var name in WorkerPidFiles)
+            {
+                var path = Path.Combine(appDirectory, name);
+                foreach (var file in new[] { path, path + ".logs.json", path + ".lock" })
+                    try { if (File.Exists(file)) File.Delete(file); } catch { }
+            }
+
+            foreach (var pattern in new[] { "automation-worker-*.cmd", "browser-worker-*.cmd", "release-queue-worker-*.cmd", "status-queue-worker-*.cmd", "laravel-server-*.cmd" })
+                foreach (var file in Directory.EnumerateFiles(appDirectory, pattern))
+                    try { File.Delete(file); } catch { }
         }
 
         private static async Task WaitPortsClosed()
@@ -289,15 +356,42 @@ internal static class Program
         }
 
         private static string QuoteForCmd(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
-        private void Start(string name, string exe, string args, string cwd, string key)
+        private void Start(string name, string exe, string[] args, string cwd, string key)
         {
+            if (ownedServices.TryGetValue(name, out var existing))
+            {
+                if (!existing.HasExited) return;
+                existing.Dispose();
+                ownedServices.Remove(name);
+            }
+
             var logs = Path.Combine(root, "storage", "logs");
-            var command = $"\"\"{exe}\" {args} >> \"{Path.Combine(logs, $"launcher-{name}.log")}\" 2>> \"{Path.Combine(logs, $"launcher-{name}-error.log")}\"\"";
-            var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec")!, "/d /s /c " + command) { WorkingDirectory = cwd, UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            Directory.CreateDirectory(logs);
+            var info = new ProcessStartInfo(exe) { WorkingDirectory = cwd, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var argument in args) info.ArgumentList.Add(argument);
             info.Environment["AUTOMATION_HMAC_KEY"] = key; info.Environment["PLAYWRIGHT_SERVICE_URL"] = $"http://127.0.0.1:{WorkerPort}";
             info.Environment["PLAYWRIGHT_CHROMIUM_EXECUTABLE"] = browserExecutable;
             info.Environment["PATH"] = Path.Combine(root, "runtime", "media") + Path.PathSeparator + (info.Environment["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? "");
-            Process.Start(info);
+            var outputPath = Path.Combine(logs, $"launcher-{name}.log");
+            var errorPath = Path.Combine(logs, $"launcher-{name}-error.log");
+            var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+            process.OutputDataReceived += (_, eventArgs) => AppendLogLine(outputPath, eventArgs.Data);
+            process.ErrorDataReceived += (_, eventArgs) => AppendLogLine(errorPath, eventArgs.Data);
+            if (!process.Start()) throw new InvalidOperationException($"Layanan {name} gagal dimulai.");
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            ownedServices[name] = process;
+
+            var appDirectory = Path.Combine(root, "storage", "app");
+            Directory.CreateDirectory(appDirectory);
+            var pidFileName = name == "worker" ? "automation-worker-desktop.pid" : $"desktop-{name}.pid";
+            File.WriteAllText(Path.Combine(appDirectory, pidFileName), process.Id.ToString());
+        }
+
+        private static void AppendLogLine(string path, string? line)
+        {
+            if (line is null) return;
+            try { File.AppendAllText(path, line + Environment.NewLine); } catch { }
         }
         private static async Task WaitPort(int port) { for (var i = 0; i < 90; i++) { if (PortOpen(port)) return; await Task.Delay(500); } throw new InvalidOperationException($"Service port {port} tidak aktif."); }
         private async Task WaitQueueWorker(string queue) { for (var i = 0; i < 60; i++) { if (QueueRunning(queue)) return; await Task.Delay(500); } throw new InvalidOperationException($"Queue worker {queue} tidak aktif. Periksa file log worker di Pengaturan Platform."); }

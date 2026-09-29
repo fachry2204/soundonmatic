@@ -10,14 +10,7 @@
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <span class="badge badge--brand">Live · 3 detik</span>
-                <label class="release-filter min-w-48">
-                    <span>Tampilkan data Soundfresh</span>
-                    <select wire:model.live="checkSourceTab" aria-label="Pilih data Soundfresh yang ditampilkan">
-                        <option value="under_review">Under Review</option>
-                        <option value="uploading">Uploading</option>
-                        <option value="both">Keduanya</option>
-                    </select>
-                </label>
+                <span class="text-xs text-slate-500">Sumber: seluruh Uploading Soundfresh</span>
                 <button type="button" wire:click="downloadUnderReviewReport" wire:loading.attr="disabled" wire:target="downloadUnderReviewReport" class="secondary-button">
                     <span wire:loading.remove wire:target="downloadUnderReviewReport">Download Rilis Under Review</span>
                     <span wire:loading wire:target="downloadUnderReviewReport">Membuat Excel...</span>
@@ -30,9 +23,9 @@
         </section>
 
         <section class="mb-5 flex flex-wrap items-stretch gap-3" aria-label="Tab status SoundOn">
-            <button type="button" wire:click="filterBySoundOnStatus('all')" class="secondary-button {{ $soundOnStatus === 'all' ? 'border-indigo-500 text-indigo-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'all' ? 'true' : 'false' }}">Semua status <strong>{{ $totalJobs }}</strong></button>
-            <button type="button" wire:click="filterBySoundOnStatus('under_review')" class="secondary-button {{ $soundOnStatus === 'under_review' ? 'border-indigo-500 text-indigo-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'under_review' ? 'true' : 'false' }}">Status Under Review <strong>{{ $underReviewJobs }}</strong></button>
-            <button type="button" wire:click="filterBySoundOnStatus('not_approved')" class="secondary-button {{ $soundOnStatus === 'not_approved' ? 'border-red-400 text-red-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'not_approved' ? 'true' : 'false' }}">Status Not Approve <strong>{{ $notApprovedJobs }}</strong></button>
+            <button type="button" wire:click="filterBySoundOnStatus('new')" class="secondary-button {{ $soundOnStatus === 'new' ? 'border-indigo-500 text-indigo-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'new' ? 'true' : 'false' }}">Status Baru Diambil <strong> {{ $newStatusJobs }}</strong></button>
+            <button type="button" wire:click="filterBySoundOnStatus('under_review')" class="secondary-button {{ $soundOnStatus === 'under_review' ? 'border-indigo-500 text-indigo-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'under_review' ? 'true' : 'false' }}">Status Under Review <strong> {{ $underReviewJobs }}</strong></button>
+            <button type="button" wire:click="filterBySoundOnStatus('not_approved')" class="secondary-button {{ $soundOnStatus === 'not_approved' ? 'border-red-400 text-red-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'not_approved' ? 'true' : 'false' }}">Status Not Approve <strong> {{ $notApprovedJobs }}</strong></button>
             @if(in_array($soundOnStatus, ['under_review', 'not_approved'], true))
                 <button type="button" wire:click="recheckCurrentSoundOnTab" wire:loading.attr="disabled" wire:target="recheckCurrentSoundOnTab" class="primary-button" @disabled($bulkCheckRequested)>
                     <span wire:loading.remove wire:target="recheckCurrentSoundOnTab">Cek ulang status tab ini</span>
@@ -58,12 +51,12 @@
             <header class="panel-header release-status-toolbar">
                 <div>
                     <h2 class="panel-title">Daftar status rilisan</h2>
-                    <p class="panel-copy">Menampilkan maksimal 200 rilisan yang sudah masuk antrean pemeriksaan SoundOn.</p>
+            <p class="panel-copy">Tab Status Baru Diambil menampilkan hasil scan Soundfresh terbaru; Under Review dan Not Approved yang sudah tersimpan tidak diantrikan ulang.</p>
                 </div>
                 <div class="release-status-filters">
                     <label class="release-filter release-filter--search"><span>Cari rilisan</span><input wire:model.live.debounce.400ms="search" type="search" placeholder="Judul, artis, ID Soundfresh atau draft"></label>
                     <label class="release-filter"><span>Status pemeriksaan</span><select wire:model.live="status"><option value="all">Semua status</option><option value="queued">Menunggu</option><option value="checking">Sedang diperiksa</option><option value="detected">Terdeteksi</option><option value="not_found">Tidak ditemukan</option><option value="failed">Gagal</option></select></label>
-                    <label class="release-filter"><span>Status SoundOn</span><select wire:model.live="soundOnStatus"><option value="all">Semua</option><option value="under_review">Under Review</option><option value="delivery">Delivered</option><option value="approved">Approved</option><option value="not_approved">Not Approved</option><option value="live">Live</option><option value="pending">Belum terdeteksi</option></select></label>
+                    <label class="release-filter"><span>Status SoundOn</span><select wire:model.live="soundOnStatus"><option value="new">Status Baru Diambil</option><option value="all">Semua</option><option value="under_review">Under Review</option><option value="delivery">Delivered</option><option value="approved">Approved</option><option value="not_approved">Not Approved</option><option value="live">Live</option><option value="pending">Belum terdeteksi</option></select></label>
                     <button type="button" wire:click="resetFilters" class="secondary-button">Reset</button>
                 </div>
             </header>

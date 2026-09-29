@@ -28,7 +28,7 @@ final class ReleaseStatus extends Component
     public string $status = 'all';
 
     #[Url(as: 'soundon')]
-    public string $soundOnStatus = 'all';
+    public string $soundOnStatus = 'new';
 
     public string $releaseDateFilter = 'all';
 
@@ -129,6 +129,8 @@ final class ReleaseStatus extends Component
 
     public function refreshSoundOnStatuses(SessionManager $sessions): void
     {
+        $this->recoverAbandonedStatusRuns();
+
         try {
             $sessions->assertReadable(Platform::Soundfresh);
             $sessions->assertReadable(Platform::SoundOn);
@@ -145,9 +147,8 @@ final class ReleaseStatus extends Component
             $this->checkSourceTab = 'both';
         }
         $alreadyRunning = AutomationRun::query()
-            ->where('status', 'running')
+            ->whereIn('status', ['queued', 'running'])
             ->where('summary_json->purpose', 'soundon_status_check')
-            ->whereHas('releaseJobs', fn ($query) => $query->whereIn('soundon_check_status', ['queued', 'checking']))
             ->exists();
         if ($alreadyRunning) {
             $this->bulkCheckRequested = true;
@@ -156,13 +157,19 @@ final class ReleaseStatus extends Component
             return;
         }
         $this->selectedJobIds = [];
-        QueueSoundOnStatusChecks::dispatch(auth()->id(), 'uploading');
+        $run = AutomationRun::query()->create([
+            'triggered_by' => auth()->id(),
+            'status' => 'queued',
+            'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+        ]);
+        QueueSoundOnStatusChecks::dispatch(auth()->id(), 'uploading', $run->id);
         $this->bulkCheckRequested = true;
-        $this->syncMessage = 'Sedang memeriksa maksimal 300 rilisan Uploading Soundfresh yang belum memiliki status SoundOn.';
+        $this->syncMessage = 'Sedang mengambil seluruh rilisan Uploading Soundfresh dan memeriksa ulang status SoundOn.';
     }
 
     public function pollStatusUpdates(): void
     {
+        $recoveredStatusRuns = $this->recoverAbandonedStatusRuns();
         $queueActive = DB::table('jobs')->where('queue', 'status-checks')->exists();
         $releaseActive = ReleaseJob::query()->whereIn('soundon_check_status', ['queued', 'checking'])->exists();
         $recoveredInterruptedChecks = false;
@@ -182,12 +189,66 @@ final class ReleaseStatus extends Component
             $releaseActive = false;
         }
 
-        if (! $queueActive && ! $releaseActive) {
+        $statusRunActive = AutomationRun::query()
+            ->whereIn('status', ['queued', 'running'])
+            ->where('summary_json->purpose', 'soundon_status_check')
+            ->exists();
+
+        if (! $queueActive && ! $releaseActive && ! $statusRunActive) {
             $this->bulkCheckRequested = false;
-            $this->syncMessage = $recoveredInterruptedChecks
+            $this->syncMessage = $recoveredStatusRuns
+                ? 'Pemeriksaan yang macet telah dihentikan dengan aman. Status rilisan yang belum selesai ditandai gagal dan dapat diperiksa ulang.'
+                : ($recoveredInterruptedChecks
                 ? 'Pemeriksaan telah berhenti. Semua status loading sudah difinalisasi; rilisan yang terputus dapat diperiksa ulang.'
-                : 'Pemeriksaan rilisan Under Review dan Uploading telah selesai.';
+                : 'Pemeriksaan rilisan Under Review dan Uploading telah selesai.');
         }
+    }
+
+    /**
+     * Recover status scans whose queue dispatcher/worker disappeared before
+     * it could finish. A status worker normally drains a full scan in minutes;
+     * the one-hour grace period avoids mistaking a slow but active scan for a
+     * dead one. The queue must also be empty and the run must have no active
+     * release checks before it is finalized.
+     */
+    private function recoverAbandonedStatusRuns(): bool
+    {
+        if (DB::table('jobs')->where('queue', 'status-checks')->exists()) {
+            return false;
+        }
+
+        $staleBefore = now()->subHour();
+        $runs = AutomationRun::query()
+            ->whereIn('status', ['queued', 'running'])
+            ->where('summary_json->purpose', 'soundon_status_check')
+            ->whereRaw('COALESCE(started_at, created_at) <= ?', [$staleBefore])
+            ->get();
+
+        $recovered = false;
+        foreach ($runs as $run) {
+            $pending = ReleaseJob::query()
+                ->where('automation_run_id', $run->id)
+                ->whereIn('soundon_check_status', ['queued', 'checking']);
+
+            if ($pending->exists()) {
+                $pending->update([
+                    'soundon_check_status' => 'failed',
+                    'soundon_check_progress' => 100,
+                    'soundon_check_error' => 'Pemeriksaan terputus karena worker berhenti atau tidak merespons. Silakan periksa ulang rilisan ini.',
+                    'soundon_status_checked_at' => now(),
+                    'soundon_check_finished_at' => now(),
+                ]);
+            }
+
+            $run->update([
+                'status' => 'failed',
+                'finished_at' => now(),
+                'summary_json' => [...($run->summary_json ?? []), 'error' => 'Status check worker stopped before finishing; recovered automatically.'],
+            ]);
+            $recovered = true;
+        }
+
+        return $recovered;
     }
 
     public function recheckCurrentSoundOnTab(): void
@@ -323,13 +384,13 @@ final class ReleaseStatus extends Component
     {
         $this->reset('search', 'status', 'soundOnStatus', 'releaseDateFilter');
         $this->status = 'all';
-        $this->soundOnStatus = 'all';
+        $this->soundOnStatus = 'new';
         $this->releaseDateFilter = 'all';
     }
 
     public function filterBySoundOnStatus(string $status): void
     {
-        if (! in_array($status, ['all', 'under_review', 'delivery', 'approved', 'not_approved', 'live'], true)) {
+        if (! in_array($status, ['all', 'new', 'under_review', 'delivery', 'approved', 'not_approved', 'live'], true)) {
             return;
         }
 
@@ -406,6 +467,26 @@ final class ReleaseStatus extends Component
         $metricQuery = ReleaseJob::query()
             ->whereNotNull('soundon_check_status')
             ->whereIn('soundfresh_workflow_status', $sourceStatuses);
+        $latestStatusRunId = AutomationRun::query()
+            ->where('summary_json->purpose', 'soundon_status_check')
+            ->latest('updated_at')
+            ->latest('created_at')
+            ->value('id');
+        $newStatusQuery = ReleaseJob::query()
+            ->whereNotNull('soundon_check_status')
+            ->whereIn('soundfresh_workflow_status', $sourceStatuses);
+        if ($latestStatusRunId) {
+            $newStatusQuery->where('automation_run_id', $latestStatusRunId)
+                ->where(function ($query): void {
+                    $query->whereNull('soundon_release_status')
+                        ->orWhereNotIn('soundon_release_status', ['under_review', 'not_approved']);
+                });
+        }
+        if ($this->bulkCheckRequested) {
+            // Hide the previous snapshot immediately after the operator starts
+            // a full refresh; it will be replaced by the latest run results.
+            $newStatusQuery->whereRaw('1 = 0');
+        }
         $reviewDateJobs = (clone $metricQuery)
             ->where('soundon_release_status', 'under_review')
             ->get(['id', 'metadata_snapshot_json']);
@@ -438,6 +519,18 @@ final class ReleaseStatus extends Component
             $query->where('soundon_release_status', $this->soundOnStatus);
         } elseif ($this->soundOnStatus === 'pending') {
             $query->whereNull('soundon_release_status');
+        } elseif ($this->soundOnStatus === 'new') {
+            if (! $this->bulkCheckRequested) {
+                if ($latestStatusRunId) {
+                    $query->where('automation_run_id', $latestStatusRunId)
+                        ->where(function ($builder): void {
+                            $builder->whereNull('soundon_release_status')
+                                ->orWhereNotIn('soundon_release_status', ['under_review', 'not_approved']);
+                        });
+                }
+            } else {
+                $query->whereRaw('1 = 0');
+            }
         }
 
         if ($this->releaseDateFilter === 'today') {
@@ -446,7 +539,7 @@ final class ReleaseStatus extends Component
             $query->whereIn('id', $overdueReviewIds);
         }
 
-        $jobs = $query->limit(200)->get();
+        $jobs = $query->get();
         $selectableJobIds = $jobs->filter(function (ReleaseJob $job): bool {
             $isrcs = array_values(array_filter((array) $job->soundon_isrcs_json));
             return $job->soundfresh_workflow_status === 'uploading'
@@ -476,6 +569,7 @@ final class ReleaseStatus extends Component
             'jobs' => $jobs,
             'selectableJobIds' => $selectableJobIds,
             'totalJobs' => (clone $metricQuery)->count(),
+            'newStatusJobs' => $newStatusQuery->count(),
             'underReviewJobs' => (clone $metricQuery)->where('soundon_release_status', 'under_review')->count(),
             'todayReviewJobs' => count($todayReviewIds),
             'overdueReviewJobs' => count($overdueReviewIds),

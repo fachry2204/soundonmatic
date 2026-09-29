@@ -24,7 +24,8 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
 
     public function __construct(
         public readonly ?int $userId = null,
-        public readonly string $sourceTab = 'both',
+        public readonly string $sourceTab = 'uploading',
+        public readonly ?string $statusRunId = null,
     )
     {
         $this->onQueue('status-checks');
@@ -32,12 +33,24 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
 
     public function handle(PlaywrightClient $worker, SessionManager $sessions): void
     {
-        $run = AutomationRun::query()->create([
-            'triggered_by' => $this->userId,
-            'status' => AutomationRunStatus::Running,
-            'started_at' => now(),
-            'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => $this->sourceTab],
-        ]);
+        $run = $this->statusRunId
+            ? AutomationRun::query()->find($this->statusRunId)
+            : null;
+        if ($run) {
+            $run->update([
+                'status' => AutomationRunStatus::Running,
+                'started_at' => now(),
+                'finished_at' => null,
+                'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+            ]);
+        } else {
+            $run = AutomationRun::query()->create([
+                'triggered_by' => $this->userId,
+                'status' => AutomationRunStatus::Running,
+                'started_at' => now(),
+                'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+            ]);
+        }
 
         try {
             $soundfresh = $sessions->ensure(Platform::Soundfresh);
@@ -47,28 +60,12 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
                 return;
             }
 
-            $sourceTab = in_array($this->sourceTab, ['under_review', 'uploading', 'both'], true)
-                ? $this->sourceTab
-                : 'both';
-            $underReviewItems = in_array($sourceTab, ['under_review', 'both'], true)
-                ? collect($worker->underReview(null, $soundfresh->session_state_encrypted))
-                : collect();
-            $uploadingItems = in_array($sourceTab, ['uploading', 'both'], true)
-                ? collect($worker->uploading(null, $soundfresh->session_state_encrypted))
-                : collect();
-
-            // Status checks intentionally read only the actual Under Review and
-            // Uploading tabs. Pending and All Releases are not sources here.
-            $canonicalItems = collect();
-            foreach ([
-                'under_review' => $underReviewItems,
-                'uploading' => $uploadingItems,
-            ] as $tabStatus => $tabItems) {
-                foreach ($tabItems as $item) {
-                    $canonicalItems->put((string) $item['release_id'], [...$item, 'workflow_status' => $tabStatus]);
-                }
-            }
-            $canonicalItems = $canonicalItems->values();
+            // Bulk collection always reads every Uploading release, including
+            // jobs serialized before the source selector was removed.
+            $canonicalItems = collect($worker->uploading(null, $soundfresh->session_state_encrypted))
+                ->keyBy(fn (array $item): string => (string) $item['release_id'])
+                ->map(fn (array $item): array => [...$item, 'workflow_status' => 'uploading'])
+                ->values();
             $run->update(['pending_found' => $canonicalItems->count()]);
 
             // Refresh the actual tab membership for locally known releases.
@@ -89,6 +86,10 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
                 }
             });
 
+            // This action is a full refresh of the Soundfresh Uploading tab.
+            // Recheck previously known releases too; filtering those out made
+            // later scans enqueue only newly discovered items, so the table
+            // could never reflect every release currently in Soundfresh.
             $actionableItems = $canonicalItems;
             $store = function (array $item, string $sourceStatus) use ($run): ReleaseJob {
                 $key = 'soundfresh:'.$item['release_id'].':soundon';
@@ -130,16 +131,21 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
                 ->filter(fn (ReleaseJob $job): bool => filled($job->release_title))->values();
             $uploadingJobs = $actionableItems->where('workflow_status', 'uploading')->map(fn (array $item): ReleaseJob => $store($item, 'uploading'))
                 ->filter(fn (ReleaseJob $job): bool => filled($job->release_title))->values();
+            // Keep existing Under Review/Rejected records in the snapshot and
+            // their dedicated filters, but do not enqueue them for collection
+            // again on every full Uploading refresh.
+            $uploadingJobs = $uploadingJobs->reject(fn (ReleaseJob $job): bool => in_array(
+                $job->soundon_release_status,
+                ['under_review', 'not_approved'],
+                true,
+            ))->values();
             $jobs = $underReviewJobs->concat($uploadingJobs)->unique('id')->values();
 
             foreach ($jobs as $job) {
-                // Every new scan rechecks previously detected releases too;
-                // old identifiers must not enable verification during a scan.
+                // Preserve the last detected status and identifiers while the
+                // replacement scan runs. This keeps reports populated and the
+                // UI stable until the new SoundOn result is committed.
                 $job->update([
-                    'soundon_release_status' => null,
-                    'soundon_upc' => null,
-                    'soundon_isrcs_json' => null,
-                    'soundon_status_checked_at' => null,
                     'soundon_check_status' => 'queued',
                     'soundon_check_progress' => 5,
                     'soundon_check_error' => null,

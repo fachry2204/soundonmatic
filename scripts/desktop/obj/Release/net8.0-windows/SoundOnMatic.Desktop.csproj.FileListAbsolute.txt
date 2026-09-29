@@ -5,7 +5,6 @@ D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\SoundMat
 D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\SoundMatic.deps.json
 D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\SoundMatic.runtimeconfig.json
 D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\SoundMatic.dll
-D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\SoundMatic.pdb
 D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\System.Management.dll
 D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\runtimes\win\lib\net8.0\System.Management.dll
 D:\xampp\htdocs\soundonmatic\scripts\desktop\bin\Release\net8.0-windows\Microsoft.Web.WebView2.Core.dll
@@ -22,6 +21,5 @@ D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\SoundOnM
 D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\SoundOnM.1E73C43D.Up2Date
 D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\SoundMatic.dll
 D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\refint\SoundMatic.dll
-D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\SoundMatic.pdb
 D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\SoundOnMatic.Desktop.genruntimeconfig.cache
 D:\xampp\htdocs\soundonmatic\scripts\desktop\obj\Release\net8.0-windows\ref\SoundMatic.dll

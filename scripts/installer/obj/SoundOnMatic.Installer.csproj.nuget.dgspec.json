@@ -5,7 +5,7 @@
   },
   "projects": {
     "D:\\xampp\\htdocs\\soundonmatic\\scripts\\installer\\SoundOnMatic.Installer.csproj": {
-      "version": "1.1.40",
+      "version": "1.1.60",
       "restore": {
         "projectUniqueName": "D:\\xampp\\htdocs\\soundonmatic\\scripts\\installer\\SoundOnMatic.Installer.csproj",
         "projectName": "SoundMatic-Setup",
@@ -48,6 +48,10 @@
               "target": "Package",
               "version": "[8.0.30, )",
               "autoReferenced": true
+            },
+            "System.Management": {
+              "target": "Package",
+              "version": "[8.0.0, )"
             }
           },
           "imports": [

@@ -9,6 +9,42 @@
             <div class="info-banner mb-6"><strong>Status terbaru</strong><span>{{ $message }}</span></div>
         @endif
 
+        <article class="panel mb-6 overflow-hidden">
+            <header class="panel-header">
+                <div>
+                    <h2 class="panel-title">Otomatis Berjalan</h2>
+                    <p class="panel-copy">Jika aktif, sistem otomatis menjalankan Ambil Rilis dan Cek Status sesuai interval dan jam kerja.</p>
+                </div>
+                <span class="badge {{ $automaticRunEnabled ? 'badge--success' : 'badge--warning' }}">{{ $automaticRunEnabled ? 'Aktif' : 'Nonaktif' }}</span>
+            </header>
+            <form wire:submit="saveAutomaticRunSettings" class="grid gap-4 p-5 lg:grid-cols-4">
+                <label class="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 lg:col-span-4">
+                    <input type="checkbox" wire:model="automaticRunEnabled" class="h-4 w-4 rounded border-slate-300 text-indigo-600">
+                    Aktifkan otomatis berjalan
+                </label>
+                <div>
+                    <label class="form-label">Interval pengambilan status</label>
+                    <input type="number" min="5" max="1440" wire:model="automaticRunIntervalMinutes" class="form-input">
+                    <p class="mt-1 text-xs text-slate-400">Dalam menit. Minimal 5 menit.</p>
+                </div>
+                <div>
+                    <label class="form-label">Jam mulai</label>
+                    <input type="time" wire:model="automaticRunStartTime" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Jam selesai</label>
+                    <input type="time" wire:model="automaticRunEndTime" class="form-input">
+                    <p class="mt-1 text-xs text-slate-400">Boleh melewati tengah malam.</p>
+                </div>
+                <div class="flex items-end">
+                    <button class="primary-button w-full" wire:loading.attr="disabled" wire:target="saveAutomaticRunSettings">
+                        <span wire:loading.remove wire:target="saveAutomaticRunSettings">Simpan jadwal</span>
+                        <span wire:loading wire:target="saveAutomaticRunSettings">Menyimpan...</span>
+                    </button>
+                </div>
+            </form>
+        </article>
+
         <div class="grid gap-5 lg:grid-cols-2">
             @foreach (['soundfresh' => 'Soundfresh', 'soundon' => 'SoundOn'] as $key => $label)
                 @php($account = $accounts->get($key))

@@ -24,10 +24,20 @@ final class ReadableReleaseError
                 'action' => 'Cover Art, Audio Master, dan Audio Clip baru selesai diunduh ke komputer; aset belum mulai diunggah ke SoundOn. Periksa perubahan form SoundOn sebelum menekan Retry.',
             ];
         }
+        if ($code === 'SOUNDON_FORM_VALIDATION') {
+            $detail = trim(explode('Detail teknis:', $message, 2)[1] ?? 'field wajib belum lengkap');
+
+            return [
+                'title' => 'Pengisian form SoundOn gagal',
+                'reason' => 'SoundOn menolak data saat sistem mengisi atau menyimpan form metadata. Ini bukan file rusak dan bukan berarti upload audio/cover gagal.',
+                'action' => 'Perbaiki metadata yang diminta SoundOn'.($detail !== '' ? ' ('.$detail.')' : '').', lalu tekan Retry.',
+            ];
+        }
+
         return [
             'title' => match ($code) {
                 'UI_CHANGED' => 'Kontrol SoundOn belum dapat diakses',
-                'UI_INTERACTION_TIMEOUT' => 'SoundOn belum merespons tepat waktu',
+                'UI_INTERACTION_TIMEOUT' => 'Kontrol form SoundOn tidak merespons',
                 'AUTH_SESSION_EXPIRED' => 'Sesi login kedaluwarsa',
                 'UPLOAD_FAILED' => 'Pengiriman belum berhasil dikonfirmasi',
                 default => 'Proses memerlukan pemeriksaan',

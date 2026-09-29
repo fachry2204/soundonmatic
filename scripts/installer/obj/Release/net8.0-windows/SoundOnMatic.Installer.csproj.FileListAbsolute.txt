@@ -2,13 +2,15 @@ D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\SoundM
 D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\SoundMatic-Setup.deps.json
 D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\SoundMatic-Setup.runtimeconfig.json
 D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\SoundMatic-Setup.dll
-D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\SoundMatic-Setup.pdb
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnMatic.Installer.GeneratedMSBuildEditorConfig.editorconfig
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnMatic.Installer.AssemblyInfoInputs.cache
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnMatic.Installer.AssemblyInfo.cs
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnMatic.Installer.csproj.CoreCompileInputs.cache
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundMatic-Setup.dll
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\refint\SoundMatic-Setup.dll
-D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundMatic-Setup.pdb
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnMatic.Installer.genruntimeconfig.cache
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\ref\SoundMatic-Setup.dll
+D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\System.Management.dll
+D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\runtimes\win\lib\net8.0\System.Management.dll
+D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnMatic.Installer.csproj.AssemblyReference.cache
+D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\SoundOnM.A2B22F07.Up2Date

@@ -25,7 +25,9 @@ final class DesktopLauncherTest extends TestCase
     {
         $source = file_get_contents(base_path('scripts/desktop/Program.cs'));
 
-        $this->assertStringContainsString('artisan schedule:work --no-interaction', $source);
-        $this->assertStringContainsString('command.Contains("schedule:work"', $source);
+        $this->assertStringContainsString('Start("scheduler", Php(root), ["artisan", "schedule:work", "--no-interaction"]', $source);
+        $this->assertStringContainsString('ownedServices[name] = process;', $source);
+        $this->assertStringContainsString('foreach (var process in ownedServices.Values.ToArray())', $source);
+        $this->assertStringContainsString('KillProcessTree(process);', $source);
     }
 }

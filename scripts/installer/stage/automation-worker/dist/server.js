@@ -226,25 +226,24 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
         const table = page.locator(`table#${requestedStatus}:visible, table:visible`).filter({ has: page.locator("tbody tr") }).first();
         await table.locator("tbody tr").first().waitFor({ timeout: 20_000 });
         const tableWrapper = table.locator('xpath=ancestor::div[contains(@class,"dataTables_wrapper") or contains(@class,"dt-container")]').first();
-        // DataTables defaults to ten rows. Prefer showing every row, but retain
-        // pagination support because not every Soundfresh deployment exposes 100.
+        // DataTables defaults to ten rows. Never force page length -1: some
+        // Soundfresh deployments accept that API call but keep only ten rows
+        // and disable pagination. Select the largest real option instead, then
+        // let the pagination loop below visit every remaining page.
         const tableId = await table.getAttribute("id");
+        const rowsBeforeExpansion = await table.locator("tbody tr").count();
         const lengthSelect = tableId
             ? page.locator(`select[name="${tableId}_length"]:visible`)
             : page.locator('select[name$="_length"]:visible');
         if (await lengthSelect.count()) {
-            const values = await lengthSelect.first().locator("option").evaluateAll((options) => options.map((option) => option.value));
-            const showAll = values.find((value) => Number(value) === -1);
+            const values = await lengthSelect.first().locator("option").evaluateAll((options) => options.map((option) => Number(option.value)));
             const largest = values
-                .map(Number)
                 .filter((value) => Number.isFinite(value) && value > 0)
                 .sort((a, b) => b - a)[0];
-            const pageLength = showAll ?? (largest ? String(largest) : null);
-            if (pageLength) {
-                const rowsBeforeChange = await table.locator("tbody tr").count();
-                await lengthSelect.first().selectOption(pageLength);
-                if (tableId && Number(pageLength) > rowsBeforeChange) {
-                    await page.waitForFunction(({ id, previous }) => document.querySelectorAll(`#${CSS.escape(id)} tbody tr`).length > previous, { id: tableId, previous: rowsBeforeChange }, { timeout: 15_000 }).catch(() => undefined);
+            if (largest) {
+                await lengthSelect.first().selectOption(String(largest));
+                if (tableId && largest > rowsBeforeExpansion) {
+                    await page.waitForFunction(({ id, previous }) => document.querySelectorAll(`#${CSS.escape(id)} tbody tr`).length > previous, { id: tableId, previous: rowsBeforeExpansion }, { timeout: 15_000 }).catch(() => undefined);
                 }
                 await page.waitForTimeout(300);
             }
@@ -387,11 +386,53 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             const directNextCandidates = tableId
                 ? page.locator(`#${tableId}_next:visible, #${tableId}_next a:visible, #${tableId}_next button:visible`)
                 : page.locator('[id$="_next"]:visible, [id$="_next"] a:visible, [id$="_next"] button:visible');
+            const globalNextCandidates = page.locator([
+                '[id$="_next"]:visible',
+                '[id$="_next"] a:visible',
+                '[id$="_next"] button:visible',
+                'a.paginate_button.next:visible',
+                'button.dt-paging-button.next:visible',
+                'a[aria-label*="Next" i]:visible',
+                'button[aria-label*="Next" i]:visible',
+            ].join(','));
             const next = (await directNextCandidates.count())
                 ? directNextCandidates.last()
                 : (await nextCandidates.count())
                     ? nextCandidates.last()
-                    : textNext.last();
+                    : (await textNext.count())
+                        ? textNext.last()
+                        : globalNextCandidates.last();
+            const waitForDifferentFirstRow = async () => {
+                for (let attempt = 0; attempt < 80; attempt++) {
+                    const current = (await table.locator("tbody tr").first().innerText().catch(() => "")).trim();
+                    if (current && current !== firstRowBefore.trim())
+                        return true;
+                    await page.waitForTimeout(100);
+                }
+                return false;
+            };
+            // Do not require a table id here: some Soundfresh accounts render
+            // the Uploading table without one. Requiring an id silently ended
+            // collection after its first page (often exactly 100 rows).
+            const advancedWithDataTables = await table.evaluate((element) => {
+                const jquery = window.jQuery;
+                if (!jquery?.fn?.DataTable?.isDataTable(element))
+                    return false;
+                const dataTable = jquery(element).DataTable();
+                const info = dataTable.page.info();
+                if (info.page >= info.pages - 1)
+                    return false;
+                dataTable.page(info.page + 1).draw("page");
+                return true;
+            }).catch(() => false);
+            if (advancedWithDataTables) {
+                req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh page advanced through DataTables API");
+                if (await waitForDifferentFirstRow())
+                    continue;
+            }
+            if (advancedWithDataTables) {
+                throw new Error("SOUNDFRESH_PAGINATION_STALLED: halaman Soundfresh tidak berubah; pengambilan belum lengkap.");
+            }
             if (!(await next.count()))
                 break;
             const nextClass = [
@@ -401,15 +442,10 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             const disabled = (await next.getAttribute("aria-disabled")) === "true" || /disabled/.test(nextClass);
             if (disabled)
                 break;
+            req.log.info({ tableId, pagesRead, items: items.length }, "Soundfresh DataTables API unavailable; next-page control fallback applied");
             await next.click({ timeout: 5_000 });
-            await page.waitForFunction(({ selector, previous }) => {
-                const row = document.querySelector(`${selector} tbody tr`);
-                return row && (row.textContent ?? '').trim() !== previous.trim();
-            }, { selector: await table.evaluate((element) => `#${CSS.escape(element.id)}`), previous: firstRowBefore }, { timeout: 5_000 }).catch(() => undefined);
-            const firstRowAfter = await table.locator("tbody tr").first().innerText().catch(() => "");
-            if (firstRowAfter.trim() === firstRowBefore.trim()) {
-                req.log.warn({ tableId, pagesRead, items: items.length }, "Soundfresh next page did not redraw the table");
-                break;
+            if (!(await waitForDifferentFirstRow())) {
+                throw new Error("SOUNDFRESH_PAGINATION_STALLED: halaman Soundfresh tidak berubah; pengambilan belum lengkap.");
             }
         }
         req.log.info({

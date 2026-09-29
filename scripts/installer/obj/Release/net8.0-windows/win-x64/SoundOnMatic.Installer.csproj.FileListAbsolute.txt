@@ -470,3 +470,5 @@ D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\win-x6
 D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\win-x64\zh-Hant\WindowsBase.resources.dll
 D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\win-x64\zh-Hant\WindowsFormsIntegration.resources.dll
 D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\win-x64\SoundOnM.A2B22F07.Up2Date
+D:\xampp\htdocs\soundonmatic\scripts\installer\bin\Release\net8.0-windows\win-x64\System.Management.dll
+D:\xampp\htdocs\soundonmatic\scripts\installer\obj\Release\net8.0-windows\win-x64\SoundOnMatic.Installer.csproj.AssemblyReference.cache
