@@ -157,11 +157,25 @@ final class ReleaseStatus extends Component
             return;
         }
         $this->selectedJobIds = [];
-        $run = AutomationRun::query()->create([
-            'triggered_by' => auth()->id(),
-            'status' => 'queued',
-            'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
-        ]);
+
+        // Replace the previous status-check snapshot atomically. Pipeline runs,
+        // account credentials, and unrelated release jobs must remain intact.
+        $run = DB::transaction(function (): AutomationRun {
+            $oldStatusRunIds = AutomationRun::query()
+                ->where('summary_json->purpose', 'soundon_status_check')
+                ->pluck('id');
+
+            if ($oldStatusRunIds->isNotEmpty()) {
+                ReleaseJob::query()->whereIn('automation_run_id', $oldStatusRunIds)->delete();
+                AutomationRun::query()->whereIn('id', $oldStatusRunIds)->delete();
+            }
+
+            return AutomationRun::query()->create([
+                'triggered_by' => auth()->id(),
+                'status' => 'queued',
+                'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+            ]);
+        });
         QueueSoundOnStatusChecks::dispatch(auth()->id(), 'uploading', $run->id);
         $this->bulkCheckRequested = true;
         $this->syncMessage = 'Sedang mengambil seluruh rilisan Uploading Soundfresh dan memeriksa ulang status SoundOn.';

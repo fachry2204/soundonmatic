@@ -131,14 +131,6 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
                 ->filter(fn (ReleaseJob $job): bool => filled($job->release_title))->values();
             $uploadingJobs = $actionableItems->where('workflow_status', 'uploading')->map(fn (array $item): ReleaseJob => $store($item, 'uploading'))
                 ->filter(fn (ReleaseJob $job): bool => filled($job->release_title))->values();
-            // Keep existing Under Review/Rejected records in the snapshot and
-            // their dedicated filters, but do not enqueue them for collection
-            // again on every full Uploading refresh.
-            $uploadingJobs = $uploadingJobs->reject(fn (ReleaseJob $job): bool => in_array(
-                $job->soundon_release_status,
-                ['under_review', 'not_approved'],
-                true,
-            ))->values();
             $jobs = $underReviewJobs->concat($uploadingJobs)->unique('id')->values();
 
             foreach ($jobs as $job) {

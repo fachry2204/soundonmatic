@@ -22,20 +22,6 @@
             </div>
         </section>
 
-        <section class="mb-5 flex flex-wrap items-stretch gap-3" aria-label="Tab status SoundOn">
-            <button type="button" wire:click="filterBySoundOnStatus('new')" class="secondary-button {{ $soundOnStatus === 'new' ? 'border-indigo-500 text-indigo-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'new' ? 'true' : 'false' }}">Status Baru Diambil <strong> {{ $newStatusJobs }}</strong></button>
-            <button type="button" wire:click="filterBySoundOnStatus('under_review')" class="secondary-button {{ $soundOnStatus === 'under_review' ? 'border-indigo-500 text-indigo-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'under_review' ? 'true' : 'false' }}">Status Under Review <strong> {{ $underReviewJobs }}</strong></button>
-            <button type="button" wire:click="filterBySoundOnStatus('not_approved')" class="secondary-button {{ $soundOnStatus === 'not_approved' ? 'border-red-400 text-red-700' : '' }}" aria-pressed="{{ $soundOnStatus === 'not_approved' ? 'true' : 'false' }}">Status Not Approve <strong> {{ $notApprovedJobs }}</strong></button>
-            @if(in_array($soundOnStatus, ['under_review', 'not_approved'], true))
-                <button type="button" wire:click="recheckCurrentSoundOnTab" wire:loading.attr="disabled" wire:target="recheckCurrentSoundOnTab" class="primary-button" @disabled($bulkCheckRequested)>
-                    <span wire:loading.remove wire:target="recheckCurrentSoundOnTab">Cek ulang status tab ini</span>
-                    <span wire:loading wire:target="recheckCurrentSoundOnTab">Mengantrekan cek ulang...</span>
-                </button>
-            @else
-                <span class="self-center text-xs text-slate-500">Cek Status SoundOn hanya memeriksa rilisan yang belum pernah dicek.</span>
-            @endif
-        </section>
-
         <section class="metric-grid">
             <button type="button" wire:click="filterBySoundOnStatus('all')" class="metric-card metric-card--filter {{ $soundOnStatus === 'all' ? 'metric-card--active' : '' }}" style="--metric-soft:#eef2ff" aria-pressed="{{ $soundOnStatus === 'all' ? 'true' : 'false' }}"><span class="metric-label">Seluruh rilis diambil</span><span class="metric-value">{{ $totalJobs }}</span><span class="metric-meta">Klik untuk menampilkan seluruh status rilisan</span></button>
             <button type="button" wire:click="filterBySoundOnStatus('under_review')" class="metric-card metric-card--filter {{ $soundOnStatus === 'under_review' ? 'metric-card--active' : '' }}" style="--metric-soft:#eeeeff" aria-pressed="{{ $soundOnStatus === 'under_review' ? 'true' : 'false' }}"><span class="metric-label">Under Review</span><span class="metric-value">{{ $underReviewJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilisan Under Review</span></button>
