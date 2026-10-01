@@ -30,7 +30,12 @@ final class ApplicationUpdate extends Component
 
     public function mount(): void
     {
-        $this->currentVersion = $this->normalizeVersion((string) config('automation.app_version', '1.1.40'));
+        $environmentVersion = $this->normalizeVersion((string) config('automation.app_version', '1.1.40'));
+        $bundledVersion = $this->normalizeVersion((string) config('automation.bundled_app_version', $environmentVersion));
+
+        $this->currentVersion = version_compare($bundledVersion, $environmentVersion, '>')
+            ? $bundledVersion
+            : $environmentVersion;
     }
 
     public function checkForUpdate(): void

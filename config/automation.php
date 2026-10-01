@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 return [
-    'app_version' => env('SOUNDMATIC_APP_VERSION', '1.1.66'),
+    'app_version' => env('SOUNDMATIC_APP_VERSION', '1.1.67'),
+    // Build metadata must not be overridden by a stale .env retained during upgrades.
+    'bundled_app_version' => '1.1.67',
     'update_repository' => env('SOUNDMATIC_UPDATE_REPOSITORY', 'fachry2204/soundonmatic'),
     'worker_url' => env('PLAYWRIGHT_SERVICE_URL', 'http://127.0.0.1:3100'),
     'local_server_url' => env('APP_URL', 'http://127.0.0.1:8000'),

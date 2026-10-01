@@ -496,11 +496,9 @@ final class ReleaseStatus extends Component
                         ->orWhereNotIn('soundon_release_status', ['under_review', 'not_approved']);
                 });
         }
-        if ($this->bulkCheckRequested) {
-            // Hide the previous snapshot immediately after the operator starts
-            // a full refresh; it will be replaced by the latest run results.
-            $newStatusQuery->whereRaw('1 = 0');
-        }
+        // Keep rendering rows committed by the active run while the queue is
+        // still processing. Livewire polls this component every three seconds,
+        // so completed checks must become visible without a browser refresh.
         $reviewDateJobs = (clone $metricQuery)
             ->where('soundon_release_status', 'under_review')
             ->get(['id', 'metadata_snapshot_json']);
@@ -533,18 +531,14 @@ final class ReleaseStatus extends Component
             $query->where('soundon_release_status', $this->soundOnStatus);
         } elseif ($this->soundOnStatus === 'pending') {
             $query->whereNull('soundon_release_status');
-        } elseif ($this->soundOnStatus === 'new') {
-            if (! $this->bulkCheckRequested) {
-                if ($latestStatusRunId) {
-                    $query->where('automation_run_id', $latestStatusRunId)
-                        ->where(function ($builder): void {
-                            $builder->whereNull('soundon_release_status')
-                                ->orWhereNotIn('soundon_release_status', ['under_review', 'not_approved']);
-                        });
-                }
-            } else {
-                $query->whereRaw('1 = 0');
-            }
+        } elseif ($this->soundOnStatus === 'new' && $latestStatusRunId) {
+            // Restrict this view to rows from the latest scan, including rows
+            // already completed while remaining checks stay in the queue.
+            $query->where('automation_run_id', $latestStatusRunId)
+                ->where(function ($builder): void {
+                    $builder->whereNull('soundon_release_status')
+                        ->orWhereNotIn('soundon_release_status', ['under_review', 'not_approved']);
+                });
         }
 
         if ($this->releaseDateFilter === 'today') {

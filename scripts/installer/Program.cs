@@ -277,8 +277,20 @@ internal static class Program
                 if (string.IsNullOrWhiteSpace(hmac))
                 {
                     hmac = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-                    File.WriteAllText(appEnvPath, UpsertEnvironmentValue(existingApp, "AUTOMATION_HMAC_KEY", hmac));
+                    existingApp = UpsertEnvironmentValue(existingApp, "AUTOMATION_HMAC_KEY", hmac);
                 }
+
+                var installTemplatePath = Path.Combine(target, ".env.install");
+                if (File.Exists(installTemplatePath))
+                {
+                    var newVersion = ReadEnvironmentValue(File.ReadAllText(installTemplatePath), "SOUNDMATIC_APP_VERSION");
+                    if (!string.IsNullOrWhiteSpace(newVersion))
+                    {
+                        existingApp = UpsertEnvironmentValue(existingApp, "SOUNDMATIC_APP_VERSION", newVersion);
+                    }
+                }
+
+                File.WriteAllText(appEnvPath, existingApp);
             }
             else
             {

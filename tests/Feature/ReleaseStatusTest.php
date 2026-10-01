@@ -62,6 +62,37 @@ final class ReleaseStatusTest extends TestCase
             ->assertSee('DRAFT-STATUS-1');
     }
 
+    public function test_release_status_polling_stays_active_and_renders_new_rows_without_browser_refresh(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+
+        $screen = Livewire::test(ReleaseStatus::class)
+            ->assertSeeHtml('wire:poll.3s.keep-alive="pollStatusUpdates"')
+            ->assertDontSee('Rilisan Polling Otomatis');
+
+        $run = AutomationRun::query()->create([
+            'status' => 'running',
+            'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+        ]);
+        ReleaseJob::query()->create([
+            'automation_run_id' => $run->id,
+            'soundfresh_release_id' => 'SF-POLL-AUTO',
+            'soundfresh_release_url' => 'https://soundfresh.example/releases/SF-POLL-AUTO',
+            'idempotency_key' => 'soundfresh:SF-POLL-AUTO:soundon',
+            'release_title' => 'Rilisan Polling Otomatis',
+            'status' => 'completed',
+            'checkpoint' => 'discovered',
+            'soundfresh_workflow_status' => 'uploading',
+            'soundon_check_status' => 'checking',
+        ]);
+
+        $screen->call('pollStatusUpdates')
+            ->assertSee('Rilisan Polling Otomatis');
+    }
+
     public function test_all_collected_uploading_rows_are_displayed_without_a_row_cap(): void
     {
         $this->seed(AccessControlSeeder::class);
@@ -438,6 +469,34 @@ final class ReleaseStatusTest extends TestCase
             ->assertDontSee('Rilisan Sudah Reject')
             ->call('filterBySoundOnStatus', 'under_review')
             ->assertSee('Rilisan Sudah Review');
+    }
+
+    public function test_latest_status_results_appear_while_bulk_check_is_still_running(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        $run = AutomationRun::query()->create([
+            'status' => 'running',
+            'summary_json' => ['purpose' => 'soundon_status_check'],
+        ]);
+        ReleaseJob::query()->create([
+            'automation_run_id' => $run->id,
+            'soundfresh_release_id' => 'SF-LIVE-RESULT',
+            'soundfresh_release_url' => 'https://soundfresh.example/releases/live-result',
+            'idempotency_key' => 'status-live-result',
+            'release_title' => 'Hasil Langsung Terlihat',
+            'status' => 'completed',
+            'checkpoint' => 'discovered',
+            'soundfresh_workflow_status' => 'uploading',
+            'soundon_check_status' => 'detected',
+            'soundon_release_status' => 'delivery',
+        ]);
+
+        Livewire::test(ReleaseStatus::class)
+            ->set('bulkCheckRequested', true)
+            ->assertSee('Hasil Langsung Terlihat');
     }
 
     public function test_starting_full_status_refresh_clears_the_previous_new_status_snapshot(): void

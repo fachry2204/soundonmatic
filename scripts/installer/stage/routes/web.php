@@ -9,6 +9,7 @@ use App\Livewire\Automation\NotificationCenter;
 use App\Livewire\Automation\ReleaseStatus;
 use App\Livewire\Automation\RunDetail;
 use App\Livewire\Automation\SyncMetadata;
+use App\Livewire\Automation\UserManagement;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -33,6 +34,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/sessions', AccountSessions::class)->middleware('permission:sessions.manage')->name('automation.sessions');
     Route::get('/update', ApplicationUpdate::class)->middleware('permission:sessions.manage')->name('automation.update');
     Route::get('/notifications', NotificationCenter::class)->middleware('permission:automation.view')->name('automation.notifications');
-    Route::get('/release-status', ReleaseStatus::class)->middleware('permission:automation.view')->name('automation.release-status');
+    Route::get('/release-status', ReleaseStatus::class)->middleware('permission:release-status.view')->name('automation.release-status');
+    Route::get('/users', UserManagement::class)->middleware('permission:users.manage')->name('automation.users');
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
 });

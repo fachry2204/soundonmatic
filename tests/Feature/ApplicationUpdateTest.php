@@ -24,6 +24,7 @@ final class ApplicationUpdateTest extends TestCase
         $this->actingAs($admin);
         config([
             'automation.app_version' => '1.1.40',
+            'automation.bundled_app_version' => '1.1.40',
             'automation.update_repository' => 'fachry2204/soundonmatic',
         ]);
         Http::fake([
@@ -49,6 +50,28 @@ final class ApplicationUpdateTest extends TestCase
 
         $this->assertFileExists(storage_path('app/updates/SoundMatic-Setup-v1.1.41.exe'));
         $this->assertSame('installer-binary', file_get_contents(storage_path('app/updates/SoundMatic-Setup-v1.1.41.exe')));
+    }
+
+    public function test_installed_version_prefers_newer_bundled_version_over_stale_environment_value(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+        $this->actingAs($admin);
+        config(['automation.app_version' => '1.1.57']);
+
+        Livewire::test(ApplicationUpdate::class)
+            ->assertSet('currentVersion', '1.1.67')
+            ->assertSee('v1.1.67');
+    }
+
+    public function test_installer_updates_version_without_rotating_existing_credentials(): void
+    {
+        $source = file_get_contents(base_path('scripts/installer/Program.cs'));
+
+        $this->assertStringContainsString('ReadEnvironmentValue(File.ReadAllText(installTemplatePath), "SOUNDMATIC_APP_VERSION")', $source);
+        $this->assertStringContainsString('UpsertEnvironmentValue(existingApp, "SOUNDMATIC_APP_VERSION", newVersion)', $source);
+        $this->assertStringContainsString('Never rotate it during an', $source);
     }
 
     public function test_desktop_host_launches_downloaded_installer_and_closes_application(): void
@@ -107,6 +130,7 @@ final class ApplicationUpdateTest extends TestCase
         $this->actingAs($admin);
         config([
             'automation.app_version' => '1.1.41',
+            'automation.bundled_app_version' => '1.1.41',
             'automation.update_repository' => 'fachry2204/soundonmatic',
         ]);
         Http::fake([
@@ -133,6 +157,7 @@ final class ApplicationUpdateTest extends TestCase
         $this->actingAs($admin);
         config([
             'automation.app_version' => '1.1.40',
+            'automation.bundled_app_version' => '1.1.40',
             'automation.update_repository' => 'fachry2204/soundonmatic',
         ]);
         Http::fake([

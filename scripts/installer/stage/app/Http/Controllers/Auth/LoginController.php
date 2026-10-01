@@ -64,7 +64,11 @@ final class LoginController extends Controller
         $request->session()->regenerate();
         User::whereKey(Auth::id())->update(['last_login_at' => now()]);
 
-        return redirect()->intended(route('automation.dashboard'));
+        $defaultRoute = Auth::user()?->can('automation.view')
+            ? route('automation.dashboard')
+            : route('automation.release-status');
+
+        return redirect()->intended($defaultRoute);
     }
 
     public function destroy(Request $request): RedirectResponse

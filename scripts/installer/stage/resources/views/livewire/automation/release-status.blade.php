@@ -1,4 +1,4 @@
-<div wire:poll.3s="pollStatusUpdates">
+<div wire:poll.3s.keep-alive="pollStatusUpdates">
     <x-automation-nav />
 
     <main class="page-shell">
