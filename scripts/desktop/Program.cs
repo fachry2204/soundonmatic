@@ -44,13 +44,14 @@ internal static class Program
         private string browserExecutable = "";
         private bool recoveringServices;
         private bool shuttingDown;
+        private bool closeApproved;
 
         public MainWindow(string root)
         {
-            this.root = root; Text = "SoundMatic v1.1.66"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = "SoundMatic v1.1.72"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
-            FormClosing += (_, _) => ShutdownServices();
+            FormClosing += ConfirmCloseAndStopServices;
         }
 
         private async Task StartAsync()
@@ -187,6 +188,41 @@ internal static class Program
             installer.ArgumentList.Add("--detached");
             if (Process.Start(installer) is null)
                 throw new InvalidOperationException("Windows gagal memulai installer update.");
+            // An in-app update already represents explicit approval to close;
+            // do not interrupt the update flow with the normal close prompt.
+            closeApproved = true;
+            BeginInvoke(Close);
+        }
+
+        private void ConfirmCloseAndStopServices(object? sender, FormClosingEventArgs e)
+        {
+            if (closeApproved)
+            {
+                ShutdownServices();
+                return;
+            }
+
+            var choice = MessageBox.Show(
+                this,
+                "Tutup SoundMatic dan hentikan semua service Node.js/PHP milik SoundMatic? Aplikasi lain tidak akan terpengaruh. Service akan berjalan kembali otomatis saat SoundMatic dibuka lagi.",
+                "Tutup SoundMatic?",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            if (choice != DialogResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            // Keep the form alive until owned child processes and ports have
+            // been stopped; this makes installer relaunches safe immediately.
+            e.Cancel = true;
+            closeApproved = true;
+            Enabled = false;
+            status.Visible = true;
+            status.Text = "Menghentikan service SoundMatic...";
+            ShutdownServices();
             BeginInvoke(Close);
         }
 

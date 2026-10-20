@@ -179,7 +179,7 @@ final class AssetDownloader
         }
 
         $process = new Process([
-            'ffmpeg', '-y', '-v', 'error', '-i', $sourceAbsolute,
+            (string) config('automation.ffmpeg_binary', 'ffmpeg'), '-y', '-v', 'error', '-i', $sourceAbsolute,
             '-map', '0:a:0', '-vn', '-c:a', 'pcm_s24le', '-ar', '48000',
             $temporaryAbsolute,
         ]);
@@ -234,7 +234,7 @@ final class AssetDownloader
         }
 
         $process = new Process([
-            'ffmpeg', '-y', '-v', 'error', '-i', $sourceAbsolute,
+            (string) config('automation.ffmpeg_binary', 'ffmpeg'), '-y', '-v', 'error', '-i', $sourceAbsolute,
             '-map', '0:a:0', '-vn', '-t', number_format($maximumSeconds, 3, '.', ''),
             '-c:a', 'pcm_s24le', '-ar', '48000',
             $temporaryAbsolute,
@@ -300,7 +300,7 @@ final class AssetDownloader
 
     private function convertFlacToWav(string $sourcePath, string $targetPath): void
     {
-        $process = new Process(['ffmpeg', '-y', '-v', 'error', '-i', $sourcePath, '-map', '0:a:0', '-c:a', 'pcm_s24le', $targetPath]);
+        $process = new Process([(string) config('automation.ffmpeg_binary', 'ffmpeg'), '-y', '-v', 'error', '-i', $sourcePath, '-map', '0:a:0', '-c:a', 'pcm_s24le', $targetPath]);
         $process->setTimeout(300);
         $process->run();
 

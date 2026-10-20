@@ -176,7 +176,7 @@ class StartAutomationRunTest extends TestCase
         Queue::assertPushed(ProcessReleaseJob::class, fn (ProcessReleaseJob $queued): bool => $queued->releaseJobId === $job->id);
     }
 
-    public function test_matching_title_and_artist_in_soundon_draft_moves_soundfresh_to_under_review_without_upload(): void
+    public function test_matching_title_and_artist_in_soundon_draft_is_blocked_until_all_metadata_is_confirmed(): void
     {
         Queue::fake();
         config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);
@@ -228,14 +228,13 @@ class StartAutomationRunTest extends TestCase
         app()->call([new CheckPendingReleaseDuplicates([$job->id], $run->id), 'handle']);
         $job->refresh();
 
-        $this->assertSame('completed', $job->status->value);
-        $this->assertSame('under_review', $job->soundfresh_workflow_status);
-        $this->assertSame('draft-100', $job->soundon_draft_id);
-        $this->assertSame('already_exists', $job->soundon_draft_status);
-        $this->assertNull($job->error_code);
+        $this->assertSame('needs_attention', $job->status->value);
+        $this->assertSame('pending', $job->soundfresh_workflow_status);
+        $this->assertNull($job->soundon_draft_id);
+        $this->assertSame('DUPLICATE_RELEASE_FOUND', $job->error_code);
+        $this->assertStringContainsString('Metadata draft belum dikonfirmasi', $job->error_message);
         Queue::assertNotPushed(ProcessReleaseJob::class);
-        Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundfresh/releases/review')
-            && data_get($request->data(), 'draft_id') === 'draft-100');
+        Http::assertNotSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundfresh/releases/review'));
     }
 
     public function test_matching_title_and_artist_in_remote_sources_blocks_upload_with_clear_reason(): void

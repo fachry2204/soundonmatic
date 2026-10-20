@@ -88,7 +88,16 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                 }
                 $draftMatch = $draftMatches[(string) $job->id] ?? null;
                 $sources = array_values(array_unique($sources));
-                if ($draftMatch && $sources === []) {
+                $submissionStarted = in_array($job->checkpoint, [
+                    ReleaseCheckpoint::SoundOnDraftCreationStarted,
+                    ReleaseCheckpoint::SoundOnDraftCreated,
+                    ReleaseCheckpoint::MetadataFilled,
+                    ReleaseCheckpoint::AssetsUploaded,
+                    ReleaseCheckpoint::DraftSaved,
+                    ReleaseCheckpoint::SoundfreshReviewed,
+                    ReleaseCheckpoint::Completed,
+                ], true);
+                if ($draftMatch && $sources === [] && $submissionStarted) {
                     $draftId = (string) ($draftMatch['draft_id'] ?? '');
                     if ($draftId === '') {
                         throw new \RuntimeException('Draft SoundOn cocok tetapi Draft ID tidak tersedia.');
@@ -129,7 +138,7 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                         'status' => ReleaseJobStatus::NeedsAttention,
                         'progress_label' => 'Upload diblokir karena duplikat',
                         'error_code' => 'DUPLICATE_RELEASE_FOUND',
-                        'error_message' => 'Tidak dapat di-upload: judul dan artis yang sama ditemukan di '.implode(', ', $sources).'.',
+                        'error_message' => 'Tidak dapat di-upload otomatis: judul dan artis yang sama ditemukan di '.implode(', ', $sources).'. Metadata draft belum dikonfirmasi cocok dengan seluruh metadata sumber; cocokkan secara manual sebelum melanjutkan.',
                         'progress_percent' => 100,
                         'finished_at' => now(),
                     ]);

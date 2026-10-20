@@ -34,7 +34,7 @@ internal static class Program
 
     private sealed class InstallerWindow : Form
     {
-        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.66", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
+        private readonly Label status = new() { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, Text = "SoundMatic Setup v1.1.72", Font = new Font("Segoe UI", 14, FontStyle.Bold) };
         private readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 24, Style = ProgressBarStyle.Marquee };
         private readonly Button install = new() { Dock = DockStyle.Top, Height = 46, Text = "Install SoundMatic" };
         private readonly Label note = new() { Dock = DockStyle.Fill, Padding = new Padding(18), TextAlign = ContentAlignment.TopLeft, Text = "Aplikasi akan dipasang untuk pengguna Windows saat ini.\n\nLokasi: %LOCALAPPDATA%\\Programs\\SoundMatic\n\nSetelah instalasi, login awal: admin / admin. Segera ganti password setelah masuk." };
@@ -71,8 +71,6 @@ internal static class Program
                 status.Text = "Menghentikan SoundMatic yang sedang berjalan...";
                 Log(status.Text);
                 await StopRunningApplication(target);
-                StopOwnedRuntimeProcesses(target);
-                await Task.Delay(700);
                 DeleteOldWorkerFiles(target);
                 status.Text = "Mengekstrak aplikasi...";
                 Log(status.Text);
@@ -158,23 +156,8 @@ internal static class Program
                 finally { process.Dispose(); }
             }
 
-            // Clean up orphaned workers left by a previous crash or forced close.
-            foreach (var name in new[] { "php", "node" })
-            {
-                foreach (var process in Process.GetProcessesByName(name))
-                {
-                    try
-                    {
-                        if (!BelongsToInstallation(process, normalizedTarget)) continue;
-                        process.Kill(entireProcessTree: true);
-                        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-                    }
-                    catch { TryKill(process); }
-                    finally { process.Dispose(); }
-                }
-            }
+            await StopOwnedRuntimeProcesses(target);
 
-            await Task.Delay(700); // allow Windows to release loaded DLL handles
             var locked = new[] {
                 Path.Combine(target, "runtime", "node", "node.exe"),
                 Path.Combine(target, "runtime", "php", "php.exe"),
@@ -183,28 +166,66 @@ internal static class Program
                 throw new InvalidOperationException("SoundMatic masih menggunakan file runtime. Tutup aplikasi melalui Task Manager lalu jalankan installer kembali. File terkunci: " + string.Join(", ", locked.Select(Path.GetFileName)));
         }
 
-        private static void StopOwnedRuntimeProcesses(string target)
+        private static async Task StopOwnedRuntimeProcesses(string target)
         {
             var normalizedTarget = Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            try
+            var lastFound = new List<string>();
+            for (var attempt = 0; attempt < 20; attempt++)
             {
-                using var query = new ManagementObjectSearcher("SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name='php.exe' OR Name='node.exe'");
-                foreach (ManagementObject item in query.Get())
+                var owned = new List<(int Id, string Name, string Executable, string CommandLine)>();
+                try
                 {
-                    var executable = (string?) item["ExecutablePath"] ?? string.Empty;
-                    var command = (string?) item["CommandLine"] ?? string.Empty;
-                    if (!executable.StartsWith(normalizedTarget, StringComparison.OrdinalIgnoreCase)
-                        && !command.Contains(normalizedTarget, StringComparison.OrdinalIgnoreCase)) continue;
+                    using var query = new ManagementObjectSearcher("SELECT ProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process WHERE Name='php.exe' OR Name='node.exe'");
+                    foreach (ManagementObject item in query.Get())
+                    {
+                        var executable = (string?)item["ExecutablePath"] ?? string.Empty;
+                        var command = ((string?)item["CommandLine"] ?? string.Empty).Replace('/', '\\');
+                        var imageIsOwned = executable.StartsWith(normalizedTarget, StringComparison.OrdinalIgnoreCase);
+                        var commandUsesInstall = command.Contains(normalizedTarget, StringComparison.OrdinalIgnoreCase);
+                        if (!imageIsOwned && !commandUsesInstall) continue;
+                        owned.Add((Convert.ToInt32(item["ProcessId"]), (string?)item["Name"] ?? "runtime.exe", executable, command));
+                    }
+                }
+                catch (Exception error)
+                {
+                    Log($"Gagal membaca daftar proses runtime milik SoundMatic (percobaan {attempt + 1}/20): {error.Message}");
+                }
+
+                if (owned.Count == 0)
+                {
+                    await Task.Delay(500); // let Windows release mapped executable files
+                    var stillLocked = new[] {
+                        Path.Combine(target, "runtime", "node", "node.exe"),
+                        Path.Combine(target, "runtime", "php", "php.exe"),
+                    }.Where(IsFileLocked).ToArray();
+                    if (stillLocked.Length == 0) return;
+
+                    lastFound = stillLocked.Select(path => Path.GetFileName(path) + " (file masih terkunci)").ToList();
+                    Log("Menunggu Windows melepas file runtime: " + string.Join(", ", lastFound));
+                    await Task.Delay(500);
+                    continue;
+                }
+
+                lastFound = owned.Select(process => $"{process.Name} PID {process.Id}").ToList();
+                foreach (var item in owned)
+                {
                     try
                     {
-                        using var process = Process.GetProcessById(Convert.ToInt32(item["ProcessId"]));
-                        process.Kill(entireProcessTree: true);
-                        process.WaitForExit(10_000);
+                        using var process = Process.GetProcessById(item.Id);
+                        if (!process.HasExited) process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                        Log($"Runtime SoundMatic dihentikan: {item.Name} PID {item.Id}");
                     }
-                    catch { }
+                    catch (Exception error)
+                    {
+                        Log($"Gagal menghentikan {item.Name} PID {item.Id}: {error.Message}");
+                    }
                 }
+
+                await Task.Delay(500);
             }
-            catch { }
+
+            throw new InvalidOperationException("Tidak dapat menghentikan runtime milik SoundMatic secara otomatis. Proses yang masih terdeteksi: " + string.Join(", ", lastFound) + ". Tutup proses tersebut lalu jalankan installer kembali.");
         }
 
         private static void DeleteOldWorkerFiles(string target)

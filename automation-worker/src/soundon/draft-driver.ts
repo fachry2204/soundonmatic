@@ -1262,43 +1262,49 @@ export async function enableStandardMonetization(
             throw new Error(`SOUNDON_MONETIZATION_NOT_ENABLED:${option}`);
     }
 
-    const preRelease = page
+    const preReleases = page
         .getByText(/Pre-release on YouTube Shorts/)
-        .filter({ visible: true })
-        .first();
-    if (!(await preRelease.count())) {
+        .filter({ visible: true });
+    const preReleaseCount = await preReleases.count();
+    if (!preReleaseCount) {
         if (!preReleaseDate) return;
         throw new Error("SOUNDON_UI_CHANGED:youtube_pre_release");
     }
-    let youtubeCard = preRelease.locator("..");
-    for (let depth = 0; depth < 6; depth++) {
-        const checkbox = youtubeCard.locator('input[type="checkbox"]');
-        const dateLabels = youtubeCard.getByText("Pre-release date", { exact: true });
-        if ((await checkbox.count()) && (await dateLabels.count())) break;
-        youtubeCard = youtubeCard.locator("..");
-    }
-    const checkbox = youtubeCard.locator('input[type="checkbox"]').first();
-    if (!(await checkbox.count()))
-        throw new Error("SOUNDON_UI_CHANGED:youtube_pre_release_checkbox");
-    if (!preReleaseDate) {
-        await setCheckboxState(checkbox, false, "SOUNDON_YOUTUBE_PRE_RELEASE_NOT_DISABLED");
-        return;
-    }
-    if (!(await checkbox.isChecked())) await checkbox.click({ force: true });
-    await youtubeCard
-        .getByText("Pre-release date", { exact: true })
-        .first()
-        .waitFor({ state: "visible", timeout: 10_000 });
-    try {
-        await setScopedInput(youtubeCard, "Pre-release date", preReleaseDate);
-        // Selecting a calendar date re-renders the current SoundOn card. Set
-        // the controlled time dropdown last so its committed form-state value
-        // is not replaced by that render.
-        await setScopedTime(youtubeCard, "Pre-release time");
-        await assertScopedPreReleasePersisted(youtubeCard, preReleaseDate);
-    } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(`PRE_RELEASE_INVALID:YouTube:${preReleaseDate}:${detail}`);
+    for (let index = 0; index < preReleaseCount; index++) {
+        let youtubeCard = preReleases.nth(index).locator("..");
+        let cardFound = false;
+        for (let depth = 0; depth < 8; depth++) {
+            const checkboxCount = await youtubeCard.locator('input[type="checkbox"]').count();
+            const dateLabelCount = await youtubeCard.getByText("Pre-release date", { exact: true }).count();
+            if (checkboxCount === 1 && dateLabelCount === 1) {
+                cardFound = true;
+                break;
+            }
+            youtubeCard = youtubeCard.locator("..");
+        }
+        if (!cardFound)
+            throw new Error("SOUNDON_UI_CHANGED:youtube_pre_release_card:" + (index + 1));
+        const checkbox = youtubeCard.locator('input[type="checkbox"]').first();
+        if (!preReleaseDate) {
+            await setCheckboxState(checkbox, false, "SOUNDON_YOUTUBE_PRE_RELEASE_NOT_DISABLED");
+            continue;
+        }
+        if (!(await checkbox.isChecked())) await checkbox.click({ force: true });
+        await youtubeCard
+            .getByText("Pre-release date", { exact: true })
+            .first()
+            .waitFor({ state: "visible", timeout: 10_000 });
+        try {
+            await setScopedInput(youtubeCard, "Pre-release date", preReleaseDate);
+            // Selecting a calendar date re-renders the current SoundOn card. Set
+            // the controlled time dropdown last so its committed form-state value
+            // is not replaced by that render.
+            await setScopedTime(youtubeCard, "Pre-release time");
+            await assertScopedPreReleasePersisted(youtubeCard, preReleaseDate);
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            throw new Error("PRE_RELEASE_INVALID:YouTube:track_" + (index + 1) + ":" + preReleaseDate + ":" + detail);
+        }
     }
 }
 

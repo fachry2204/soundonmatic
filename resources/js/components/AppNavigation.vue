@@ -10,6 +10,7 @@ const props = defineProps({
     canManageUsers: Boolean,
     dashboardUrl: String,
     releaseStatusUrl: String,
+    reviewsUrl: String,
     sessionsUrl: String,
     updateUrl: String,
     usersUrl: String,
@@ -22,6 +23,7 @@ const open = ref(false);
 const items = computed(() => [
     { label: 'Dashboard', href: props.dashboardUrl, icon: 'grid', show: props.canViewDashboard },
     { label: 'Cek Status Rilis', href: props.releaseStatusUrl, icon: 'status', show: true },
+    { label: 'Review', href: props.reviewsUrl, icon: 'status', show: true },
     { label: 'Kelola User', href: props.usersUrl, icon: 'users', show: props.canManageUsers },
     { label: 'Pengaturan Platform', href: props.sessionsUrl, icon: 'settings', show: props.canManageSessions },
     { label: 'Update Aplikasi', href: props.updateUrl, icon: 'update', show: props.canManageSessions },

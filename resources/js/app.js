@@ -12,6 +12,7 @@ document.querySelectorAll('[data-vue-navigation]').forEach((element) => {
         canManageUsers: element.dataset.canManageUsers === '1',
         dashboardUrl: element.dataset.dashboardUrl,
         releaseStatusUrl: element.dataset.releaseStatusUrl,
+        reviewsUrl: element.dataset.reviewsUrl,
         sessionsUrl: element.dataset.sessionsUrl,
         updateUrl: element.dataset.updateUrl,
         usersUrl: element.dataset.usersUrl,

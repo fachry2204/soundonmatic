@@ -156,7 +156,9 @@ final class AccountSessions extends Component
         try {
             $account = $sessions->ensure($enum);
             app(OperatorAudit::class)->record('platform_session_refreshed', 'Operator refreshed platform session.', context: ['platform' => $enum->value, 'status' => $account->status]);
-            $this->message = $enum->value.': '.$account->status;
+            $this->message = $account->status === 'manual_auth_required'
+                ? $enum->value.': login manual belum selesai. Tekan Login / refresh sesi lagi, lalu selesaikan CAPTCHA/OTP di jendela browser yang otomatis terbuka dalam waktu 3 menit.'
+                : $enum->value.': '.$account->status;
         } catch (BrowserWorkerException $e) {
             logger()->warning('platform_session_refresh_failed', ['platform' => $enum->value, 'exception_class' => $e::class]);
             $this->message = match ($e->reason) {

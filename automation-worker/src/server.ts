@@ -10,6 +10,7 @@ import { extractRelease } from "./soundfresh/extract.js";
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
 import { findReleaseStatuses } from "./soundon/release-status-finder.js";
+import { findLastUpdatedDates } from "./soundon/release-status-finder.js";
 import { verifySoundfreshRelease } from "./soundfresh/verify-release.js";
 import { rejectSoundfreshRelease } from "./soundfresh/reject-release.js";
 import { moveSoundfreshReleaseToUploading } from "./soundfresh/upload-release.js";
@@ -36,6 +37,7 @@ const browserLimitedPaths = new Set([
     "/v1/soundfresh/releases/extract",
     "/v1/soundon/drafts/find",
     "/v1/soundon/drafts/find-many",
+    "/v1/soundon/reviews",
     "/v1/soundfresh/releases/verify-identifiers",
     "/v1/soundfresh/releases/upload-release",
     "/v1/soundon/drafts/create",
@@ -115,13 +117,15 @@ app.post("/v1/sessions/validate", async (req) => {
             waitUntil: "domcontentloaded",
         });
         await page.waitForTimeout(2_000);
-        const valid =
-            !/login|sign-in/i.test(page.url()) &&
-            !(await page
-                .getByText(/captcha|verification code|one-time password/i)
-                .first()
-                .isVisible()
-                .catch(() => false));
+        const selectors = body.platform === "soundfresh" ? authSelectors.soundfresh : authSelectors.soundon;
+        const passwordField = body.platform === "soundon"
+            ? page.getByPlaceholder(selectors.password, { exact: true })
+            : page.getByLabel(selectors.password, { exact: true });
+        const loginFormVisible = await passwordField.isVisible().catch(() => false);
+        const path = new URL(page.url()).pathname;
+        const authenticatedRoute = selectors.authenticatedUrl.test(path);
+        const challengeVisible = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
+        const valid = !loginFormVisible && !/login|sign-in/i.test(path) && (authenticatedRoute || !challengeVisible);
         return { success: true, data: { valid } };
     } finally {
         await closeContext(browser);
@@ -137,7 +141,12 @@ app.post("/v1/sessions/login", async (req, reply) => {
         return reply
             .code(422)
             .send({ success: false, error: "INVALID_LOGIN_REQUEST" });
-    const browser = await sessionContext();
+    // Show a real browser for OTP/CAPTCHA on desktop so the operator can
+    // complete the challenge in the same context whose cookies are persisted.
+    // Linux/server deployments remain headless unless explicitly configured.
+    const manualHeadful = process.env.BROWSER_MANUAL_LOGIN_HEADFUL === "true"
+        || (process.env.BROWSER_MANUAL_LOGIN_HEADFUL !== "false" && process.platform !== "linux");
+    const browser = await sessionContext(undefined, { headless: !manualHeadful });
     try {
         const page = await browser.newPage();
         await page.goto(loginUrl(body.platform), {
@@ -187,12 +196,33 @@ app.post("/v1/sessions/login", async (req, reply) => {
                 .waitFor({ state: "visible", timeout: 20_000 }),
         ]).catch(() => undefined);
 
-        const challenge = await page
+        let challenge = await page
             .getByText(authSelectors.challenge)
             .first()
             .isVisible()
             .catch(() => false);
-        if (challenge) {
+        const authenticatedRoute = (body.platform === "soundfresh"
+            ? authSelectors.soundfresh
+            : authSelectors.soundon).authenticatedUrl.test(new URL(page.url()).pathname);
+        if (challenge && !authenticatedRoute) {
+            const deadline = Date.now() + 180_000;
+            while (Date.now() < deadline) {
+                await page.waitForTimeout(500);
+                const path = new URL(page.url()).pathname;
+                const formStillVisible = await passwordInput.isVisible().catch(() => false);
+                challenge = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
+                const nowAuthenticated = (body.platform === "soundfresh"
+                    ? authSelectors.soundfresh
+                    : authSelectors.soundon).authenticatedUrl.test(path);
+                if (!formStillVisible && (nowAuthenticated || (!challenge && !/login|sign-in/i.test(path)))) break;
+            }
+            const path = new URL(page.url()).pathname;
+            const formStillVisible = await passwordInput.isVisible().catch(() => false);
+            challenge = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
+            const nowAuthenticated = (body.platform === "soundfresh"
+                ? authSelectors.soundfresh
+                : authSelectors.soundon).authenticatedUrl.test(path);
+            if (formStillVisible || (!nowAuthenticated && (challenge || /login|sign-in/i.test(path)))) {
             return {
                 success: true,
                 data: {
@@ -200,6 +230,7 @@ app.post("/v1/sessions/login", async (req, reply) => {
                     screenshot: await screenshot(page, "manual-auth"),
                 },
             };
+            }
         }
         const invalidCredentials = await page
             .getByText(authSelectors.invalidCredentials)
@@ -683,6 +714,29 @@ app.post("/v1/soundon/drafts/find-many", async (req, reply) => {
         if (/login|sign-in/i.test(page.url())) return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
         return { success: true, data: { matches: await findDrafts(page, lookups) } };
     } finally {
+        await closeContext(browser);
+    }
+});
+app.post("/v1/soundon/reviews", async (req, reply) => {
+    const body = req.body as any;
+    const lookups = Array.isArray(body.items) ? body.items.filter((item: any) =>
+        typeof item?.key === "string" && typeof item?.title === "string" && typeof item?.artist === "string") : [];
+    if (!lookups.length) return { success: true, data: { matches: {} } };
+    const browser = await sessionContext(body.session_state);
+    activeStatusContexts.add(browser);
+    try {
+        const page = await browser.newPage();
+        await page.goto(process.env.SOUNDON_RELEASES_URL?.trim() || baseUrl("soundon") + "/library/list", { waitUntil: "domcontentloaded" });
+        await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
+        if (/login|sign-in/i.test(page.url())) return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
+        const matches = await findLastUpdatedDates(page, lookups);
+        return { success: true, data: { matches } };
+    } catch (error) {
+        const code = error instanceof Error ? error.message : "SOUNDON_REVIEW_FETCH_FAILED";
+        req.log.warn({ code }, "SoundOn review list collection failed");
+        return reply.code(501).send({ success: false, error: code });
+    } finally {
+        activeStatusContexts.delete(browser);
         await closeContext(browser);
     }
 });

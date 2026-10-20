@@ -26,8 +26,12 @@ export async function context(
 }
 export async function sessionContext(
     state?: BrowserContextOptions["storageState"],
+    options: { headless?: boolean } = {},
 ): Promise<BrowserContext> {
-    const browser = await chromium.launch(launchOptions());
+    const browser = await chromium.launch({
+        ...launchOptions(),
+        ...(options.headless === undefined ? {} : { headless: options.headless }),
+    });
     try {
         const browserContext = await browser.newContext({
             storageState: state,

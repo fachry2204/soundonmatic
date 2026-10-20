@@ -7,6 +7,7 @@ use App\Livewire\Automation\Dashboard;
 use App\Livewire\Automation\MetadataMappings;
 use App\Livewire\Automation\NotificationCenter;
 use App\Livewire\Automation\ReleaseStatus;
+use App\Livewire\Automation\SoundOnReviews;
 use App\Livewire\Automation\RunDetail;
 use App\Livewire\Automation\SyncMetadata;
 use App\Livewire\Automation\UserManagement;
@@ -35,6 +36,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/update', ApplicationUpdate::class)->middleware('permission:sessions.manage')->name('automation.update');
     Route::get('/notifications', NotificationCenter::class)->middleware('permission:automation.view')->name('automation.notifications');
     Route::get('/release-status', ReleaseStatus::class)->middleware('permission:release-status.view')->name('automation.release-status');
+    Route::get('/reviews', SoundOnReviews::class)->middleware('permission:release-status.view')->name('automation.reviews');
     Route::get('/users', UserManagement::class)->middleware('permission:users.manage')->name('automation.users');
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
 });

@@ -3,15 +3,23 @@
 declare(strict_types=1);
 
 return [
-    'app_version' => env('SOUNDMATIC_APP_VERSION', '1.1.67'),
+    'app_version' => env('SOUNDMATIC_APP_VERSION', '1.1.72'),
     // Build metadata must not be overridden by a stale .env retained during upgrades.
-    'bundled_app_version' => '1.1.67',
+    'bundled_app_version' => '1.1.72',
     'update_repository' => env('SOUNDMATIC_UPDATE_REPOSITORY', 'fachry2204/soundonmatic'),
     'worker_url' => env('PLAYWRIGHT_SERVICE_URL', 'http://127.0.0.1:3100'),
     'local_server_url' => env('APP_URL', 'http://127.0.0.1:8000'),
     'node_binary' => env('NODE_BINARY', is_file(base_path('runtime/node/node.exe'))
         ? base_path('runtime/node/node.exe')
         : (PHP_OS_FAMILY === 'Windows' ? 'C:\\Program Files\\nodejs\\node.exe' : 'node')),
+    // Use explicit bundled media-tool paths on installed Windows builds so
+    // queue workers do not depend on an inherited PATH from cmd.exe.
+    'ffmpeg_binary' => env('FFMPEG_BINARY', is_file(base_path('runtime/media/ffmpeg.exe'))
+        ? base_path('runtime/media/ffmpeg.exe')
+        : 'ffmpeg'),
+    'ffprobe_binary' => env('FFPROBE_BINARY', is_file(base_path('runtime/media/ffprobe.exe'))
+        ? base_path('runtime/media/ffprobe.exe')
+        : 'ffprobe'),
     'hmac_key' => env('AUTOMATION_HMAC_KEY') ?: hash('sha256', (string) env('APP_KEY').'|soundonmatic-automation-hmac'),
     'batch_size' => (int) env('AUTOMATION_BATCH_SIZE', 10),
     // Two isolated Chromium contexts may process two releases concurrently.

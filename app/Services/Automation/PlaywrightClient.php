@@ -39,6 +39,14 @@ final class PlaywrightClient
         ])['items'] ?? [];
     }
 
+    public function soundOnReviewLastUpdated(array $items, ?array $sessionState = null): array
+    {
+        return $this->post('/v1/soundon/reviews', [
+            'items' => $items,
+            'session_state' => $sessionState,
+        ])['matches'] ?? [];
+    }
+
     public function uploading(?int $limit = null, ?array $sessionState = null): array
     {
         return $this->post('/v1/soundfresh/pending', [

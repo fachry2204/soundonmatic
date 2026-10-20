@@ -138,15 +138,30 @@ final class ProcessReleaseJob implements ShouldQueue
                     return;
                 }
                 if ($existingDraft) {
+                    $isInterruptedSubmission = $this->hasReached($job, ReleaseCheckpoint::SoundOnDraftCreationStarted)
+                        || ($job->attempts > 1 && $this->hasReached($job, ReleaseCheckpoint::AssetsDownloaded));
+                    if (! $isInterruptedSubmission) {
+                        $job->update([
+                            'status' => ReleaseJobStatus::NeedsAttention,
+                            'progress_label' => 'Draft dengan judul dan artis sama ditemukan; metadata perlu diperiksa',
+                            'error_code' => 'DUPLICATE_RELEASE_FOUND',
+                            'error_message' => 'Draft SoundOn dengan judul dan artis yang sama ditemukan sebelum aplikasi mulai menyimpan draft. Upload dihentikan agar tidak membuat duplikat; pastikan metadata draft cocok sebelum memindahkan Soundfresh ke Under Review.',
+                            'progress_percent' => 100,
+                            'finished_at' => now(),
+                        ]);
+                        $this->event($job, 'soundon_draft_match_requires_review', 'A matching title and artist was found, but this run has no recorded draft-submission attempt; automatic reconciliation was withheld to prevent a duplicate.');
+
+                        return;
+                    }
                     $job->update([
                         'soundon_draft_id' => $existingDraft['draft_id'],
                         'soundon_draft_url' => $existingDraft['draft_url'] ?? null,
                         'soundon_draft_status' => 'already_exists',
                         'checkpoint' => ReleaseCheckpoint::DraftSaved,
-                        'error_code' => 'DUPLICATE_RELEASE_FOUND',
-                        'error_message' => 'Rilisan sudah dirilis sebelumnya di SoundOn Drafts (Draft ID '.$existingDraft['draft_id'].').',
+                        'error_code' => null,
+                        'error_message' => null,
                     ]);
-                    $this->event($job, 'soundon_draft_already_exists', 'Matching SoundOn draft found by title and primary artist: Rilisan sudah dirilis sebelumnya di SoundOn Drafts.');
+                    $this->event($job, 'soundon_draft_recovered_after_interruption', 'A matching draft was found after a prior attempt reached the SoundOn submission step. Reusing the persisted metadata snapshot and skipping draft creation.');
                 } else {
                     if (! $this->hasReached($job, ReleaseCheckpoint::AssetsDownloaded)) {
                         $this->progress($job, 32, 'Mengunduh Cover Art, Audio Master, dan Audio Clip');
@@ -156,17 +171,29 @@ final class ProcessReleaseJob implements ShouldQueue
                     // Asset preparation can take minutes. Check again immediately
                     // before creation so a draft made meanwhile is never duplicated.
                     $this->progress($job, 50, 'Aset siap untuk upload');
-                    $existingDraft = null;
+                    $existingDraft = $worker->findDraft(
+                        (string) ($metadata['title'] ?? $job->release_title),
+                        (string) ($metadata['primary_artist'] ?? $job->artist_name),
+                        $soundOn->session_state_encrypted,
+                    );
+                    if ($this->stopIfRequested($job)) {
+                        return;
+                    }
                     if ($existingDraft) {
                         $job->update([
-                            'soundon_draft_id' => $existingDraft['draft_id'],
-                            'soundon_draft_url' => $existingDraft['draft_url'] ?? null,
-                            'soundon_draft_status' => 'already_exists',
-                            'checkpoint' => ReleaseCheckpoint::DraftSaved,
+                            'status' => ReleaseJobStatus::NeedsAttention,
+                            'error_code' => 'DUPLICATE_RELEASE_FOUND',
+                            'error_message' => 'Draft SoundOn dengan judul dan artis yang sama muncul sebelum proses submit dimulai. Upload dihentikan; cocokkan metadata draft secara manual sebelum melanjutkan.',
+                            'progress_label' => 'Draft yang cocok ditemukan sebelum submit; upload duplikat dihentikan',
+                            'progress_percent' => 100,
+                            'finished_at' => now(),
                         ]);
-                        $this->event($job, 'soundon_draft_already_exists', 'Matching SoundOn draft found during final duplicate check.');
+                        $this->event($job, 'soundon_draft_match_requires_review', 'A matching title and artist appeared before submission; upload was stopped because full metadata could not be attributed to this attempt.');
+                        return;
                     } else {
                         $this->progress($job, 55, 'Membuka SoundOn dan mengisi form draft');
+                        $job->update(['checkpoint' => ReleaseCheckpoint::SoundOnDraftCreationStarted]);
+                        $job->refresh();
                         $draft = $worker->createDraft($job->id, $metadata, $soundOn->session_state_encrypted, $duplicatesChecked);
                         $alreadyExists = (bool) ($draft['already_exists'] ?? false);
                         $this->progress($job, 95, $alreadyExists

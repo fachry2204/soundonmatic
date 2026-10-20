@@ -2,6 +2,7 @@ import type { Locator, Page } from "playwright";
 
 export type SoundOnReleaseStatus = "under_review" | "delivery" | "approved" | "not_approved" | "live";
 export type ReleaseStatusLookup = { key: string; title: string; artist: string };
+export type LastUpdatedLookup = { key: string; title: string; artist: string };
 export type ReleaseStatusMatch = {
     found: true;
     status: SoundOnReleaseStatus;
@@ -314,4 +315,47 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
         }
     }
     return matches;
+}
+
+/** Find SoundOn's Last Updated Date for matching releases from Soundfresh. */
+export async function findLastUpdatedDates(page: Page, lookups: LastUpdatedLookup[]): Promise<Record<string, string>> {
+    const result: Record<string, string> = {};
+    await selectStatus(page, /under\s*review/i);
+
+    for (const item of lookups) {
+        if (!normalize(item.title) || !normalize(item.artist)) continue;
+        await search(page, item.title);
+        let candidate = await candidateFor(page, item.title, item.artist, true);
+        if (!candidate) {
+            await search(page, item.title + " " + item.artist);
+            candidate = await candidateFor(page, item.title, item.artist, true);
+        }
+        // Artist labels can be rendered differently between Soundfresh and
+        // SoundOn. A unique exact-title match is a safe fallback; ambiguous
+        // same-title releases remain unmatched rather than guessing.
+        if (!candidate) candidate = await candidateFor(page, item.title, item.artist, false);
+        if (!candidate) continue;
+
+        const updated = await candidate.evaluate((element) => {
+            const row = element.closest("tr, [role=row]") ?? element;
+            const table = row.closest("table");
+            const headers = table
+                ? Array.from(table.querySelectorAll("thead th")).map((header) => (header.textContent || "").replace(/\s+/g, " ").trim().toLowerCase())
+                : [];
+            const index = headers.findIndex((header) => /last\s*updated\s*date|last\s*updated|updated\s*date/.test(header));
+            const cells = Array.from(row.querySelectorAll(":scope > td, :scope > [role=cell]"));
+            if (index >= 0 && cells[index]) return (cells[index]?.textContent || "").replace(/\s+/g, " ").trim();
+
+            const lines = ((row as HTMLElement).innerText || row.textContent || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+            for (let position = 0; position < lines.length; position += 1) {
+                const match = lines[position]?.match(/^last\s*updated(?:\s*date)?\s*:?\s*(.*)$/i);
+                if (!match) continue;
+                return (match[1] || lines[position + 1] || "").replace(/\s+/g, " ").trim();
+            }
+            return "";
+        }).catch(() => "");
+        if (updated) result[item.key] = updated;
+    }
+
+    return result;
 }

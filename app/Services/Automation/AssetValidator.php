@@ -15,7 +15,7 @@ final class AssetValidator
             throw new RuntimeException('AUDIO_INVALID: file does not exist.');
         }
 
-        $process = new Process(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', $absolutePath]);
+        $process = new Process([(string) config('automation.ffprobe_binary', 'ffprobe'), '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', $absolutePath]);
         $process->setTimeout(30);
         $process->run();
         if (! $process->isSuccessful()) {

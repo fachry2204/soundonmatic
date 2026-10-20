@@ -9,6 +9,7 @@ enum ReleaseCheckpoint: string
     case Discovered = 'discovered';
     case MetadataExtracted = 'metadata_extracted';
     case AssetsDownloaded = 'assets_downloaded';
+    case SoundOnDraftCreationStarted = 'soundon_draft_creation_started';
     case SoundOnDraftCreated = 'soundon_draft_created';
     case MetadataFilled = 'metadata_filled';
     case AssetsUploaded = 'assets_uploaded';

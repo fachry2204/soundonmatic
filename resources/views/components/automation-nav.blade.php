@@ -8,6 +8,7 @@
     data-can-manage-users="{{ auth()->user()->can('users.manage') ? '1' : '0' }}"
     data-dashboard-url="{{ route('automation.dashboard') }}"
     data-release-status-url="{{ route('automation.release-status') }}"
+    data-reviews-url="{{ route('automation.reviews') }}"
     data-sessions-url="{{ route('automation.sessions') }}"
     data-update-url="{{ route('automation.update') }}"
     data-users-url="{{ route('automation.users') }}"

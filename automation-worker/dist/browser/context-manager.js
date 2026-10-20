@@ -18,8 +18,11 @@ export async function context(platform) {
     await browserContext.addInitScript("window.__name = window.__name || function(fn) { return fn; };");
     return browserContext;
 }
-export async function sessionContext(state) {
-    const browser = await chromium.launch(launchOptions());
+export async function sessionContext(state, options = {}) {
+    const browser = await chromium.launch({
+        ...launchOptions(),
+        ...(options.headless === undefined ? {} : { headless: options.headless }),
+    });
     try {
         const browserContext = await browser.newContext({
             storageState: state,

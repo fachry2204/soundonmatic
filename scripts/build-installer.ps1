@@ -1,4 +1,8 @@
-param([string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.67.exe'))
+param(
+    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.72.exe'),
+    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.72'),
+    [string]$WorkerDistDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation-worker\dist')
+)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $stage = Join-Path $PSScriptRoot 'installer\stage'
@@ -7,12 +11,12 @@ $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
 $sevenZipLibrary = 'C:\Program Files\7-Zip\7z.dll'
 if (!(Test-Path $sevenZip) -or !(Test-Path $sevenZipLibrary)) { throw '7-Zip beserta 7z.dll diperlukan untuk membuat installer.' }
 
-$launcherExe = Join-Path $root 'SoundMatic-v1.1.67-portable.exe'
-if (!(Test-Path $launcherExe)) {
-    Write-Host "$launcherExe belum ada, membangun..."
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-exe.ps1') -Output $launcherExe
-    if (!(Test-Path $launcherExe)) { throw 'Gagal membangun launcher.' }
-}
+$launcherProject = Join-Path $PSScriptRoot 'desktop\SoundOnMatic.Desktop.csproj'
+$launcherPublishDirectory = Join-Path $PSScriptRoot 'desktop\bin\publish'
+dotnet publish $launcherProject -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $launcherPublishDirectory
+if ($LASTEXITCODE -ne 0) { throw 'Desktop launcher build failed.' }
+$launcherExe = Join-Path $launcherPublishDirectory 'SoundMatic.exe'
+if (!(Test-Path -LiteralPath $launcherExe)) { throw 'Desktop launcher output was not created.' }
 
 if (Test-Path -LiteralPath $stage) {
     $resolvedRoot = (Resolve-Path -LiteralPath $root).Path
@@ -38,7 +42,9 @@ Copy-Item (Join-Path $root '.env.install') $stage
 Copy-Item $launcherExe (Join-Path $stage 'SoundMatic.exe')
 
 $workerStage = Join-Path $stage 'automation-worker'; New-Item $workerStage -ItemType Directory | Out-Null
-foreach ($dir in @('config','dist','node_modules')) { Copy-Item (Join-Path $root "automation-worker\$dir") $workerStage -Recurse -Force }
+foreach ($dir in @('config','node_modules')) { Copy-Item (Join-Path $root "automation-worker\$dir") $workerStage -Recurse -Force }
+if (!(Test-Path -LiteralPath $WorkerDistDirectory)) { throw "Automation worker distribution not found: $WorkerDistDirectory" }
+Copy-Item -LiteralPath $WorkerDistDirectory -Destination (Join-Path $workerStage 'dist') -Recurse -Force
 Copy-Item (Join-Path $root 'automation-worker\.env.install') $workerStage
 Copy-Item (Join-Path $root 'automation-worker\package.json') $workerStage
 
@@ -72,7 +78,7 @@ if (Test-Path $payload) { Remove-Item $payload -Force }
 & $sevenZip a -t7z -mx=5 -mmt=on $payload (Join-Path $stage '*') | Out-Host
 Copy-Item $sevenZip (Join-Path $installer '7z.exe') -Force
 Copy-Item $sevenZipLibrary (Join-Path $installer '7z.dll') -Force
-dotnet publish (Join-Path $installer 'SoundOnMatic.Installer.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o (Join-Path $installer 'bin\publish')
+dotnet publish (Join-Path $installer 'SoundOnMatic.Installer.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $PublishDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
-Copy-Item (Join-Path $installer 'bin\publish\SoundMatic-Setup.exe') $Output -Force
+Copy-Item (Join-Path $PublishDirectory 'SoundMatic-Setup.exe') $Output -Force
 Write-Output $Output
