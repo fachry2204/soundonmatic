@@ -224,7 +224,20 @@ final class PlaywrightClient
         // Preserve the worker's structured error so the classifier and admin UI
         // can identify the exact SoundOn control that failed.
         $workerError = $response->json('error');
+        $workerMessage = $response->json('message');
         if (is_string($workerError) && $workerError !== '') {
+            // Fastify's default 500 response uses the unhelpful error label
+            // "Internal Server Error" while placing the Playwright/route cause
+            // in `message`. Prefer that cause so failed automation runs can be
+            // diagnosed from the release row without the worker log.
+            if (
+                is_string($workerMessage)
+                && $workerMessage !== ''
+                && in_array(strtolower($workerError), ['internal server error', 'error'], true)
+            ) {
+                $workerError = $workerMessage;
+            }
+
             throw new RuntimeException($workerError, $response->status());
         }
 

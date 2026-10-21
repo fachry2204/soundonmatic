@@ -191,8 +191,17 @@ async function nextPage(page: Page): Promise<boolean> {
 async function candidateFor(page: Page, title: string, artist: string, strictArtist = false): Promise<Locator | null> {
     const wantedTitle = comparable(title);
     const wantedArtist = comparable(artist);
-    let rows = page.locator('tr, [role="row"], article, li, [class*="card" i]');
-    if (!await rows.count()) rows = page.locator("div");
+    // Do not union every possible row/card selector: a single release is often
+    // represented by a <tr>, nested role=row, and card-like descendants at the
+    // same time. Counting all of those made a unique title look ambiguous and
+    // produced false "not found" results. Prefer one semantic row type at a
+    // time, falling back only when the page has no table/list rows.
+    let rows = page.locator("tr:visible");
+    if (!await rows.count()) rows = page.locator('[role="row"]:visible');
+    if (!await rows.count()) rows = page.locator("article:visible");
+    if (!await rows.count()) rows = page.locator("li:visible");
+    if (!await rows.count()) rows = page.locator('[class*="card" i]:visible');
+    if (!await rows.count()) rows = page.locator("div:visible");
     const index = await rows.evaluateAll((elements, wanted) => {
         const __name = (window as any).__name || ((fn: any) => fn);
         const normalizeBrowser = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -204,11 +213,15 @@ async function candidateFor(page: Page, title: string, artist: string, strictArt
             if (!element || !(element.offsetWidth || element.offsetHeight || element.getClientRects().length)) continue;
             const raw = element.innerText || element.textContent || "";
             const lines = raw.split(/\r?\n/).map(comparableBrowser).filter(Boolean);
-            if (!lines.includes(wanted.title)) continue;
+            // In some SoundOn tables each cell is separated by tabs/spaces in
+            // innerText rather than newlines. Match the title as a bounded
+            // phrase across the row text as well as as a standalone line.
+            const rowText = ` ${comparableBrowser(raw)} `;
+            if (!lines.includes(wanted.title) && !rowText.includes(` ${wanted.title} `)) continue;
             titleMatches.push(rowIndex);
             const artistMatches = lines.some((line) =>
                 line === wanted.artist || line.replace(/^primary artists?\s*/, "") === wanted.artist,
-            );
+            ) || (wanted.artist !== "" && rowText.includes(` ${wanted.artist} `));
             if (!wanted.artist || artistMatches) return rowIndex;
         }
         // Soundfresh and SoundOn often format artist credits differently.

@@ -37,6 +37,25 @@ class DuplicateQueueTest extends TestCase
         Http::assertSent(fn ($request) => $request['duplicates_checked'] === true);
     }
 
+    public function test_duplicate_check_preserves_the_worker_cause_instead_of_generic_internal_server_error(): void
+    {
+        config(['automation.hmac_key' => 'test', 'automation.worker_url' => 'http://worker.test']);
+        Http::fake([
+            'worker.test/v1/soundfresh/pending' => Http::response([
+                'statusCode' => 500,
+                'error' => 'Internal Server Error',
+                'message' => 'locator.click: Timeout 20000ms exceeded',
+            ], 500),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('locator.click: Timeout 20000ms exceeded');
+
+        app(PlaywrightClient::class)->soundfreshDuplicates([
+            ['key' => 'release-1', 'title' => 'Single', 'artist' => 'Artist'],
+        ]);
+    }
+
     public function test_operator_can_force_upload_after_a_duplicate_is_found(): void
     {
         Queue::fake();

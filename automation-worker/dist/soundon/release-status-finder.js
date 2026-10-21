@@ -177,9 +177,22 @@ async function nextPage(page) {
 async function candidateFor(page, title, artist, strictArtist = false) {
     const wantedTitle = comparable(title);
     const wantedArtist = comparable(artist);
-    let rows = page.locator('tr, [role="row"], article, li, [class*="card" i]');
+    // Do not union every possible row/card selector: a single release is often
+    // represented by a <tr>, nested role=row, and card-like descendants at the
+    // same time. Counting all of those made a unique title look ambiguous and
+    // produced false "not found" results. Prefer one semantic row type at a
+    // time, falling back only when the page has no table/list rows.
+    let rows = page.locator("tr:visible");
     if (!await rows.count())
-        rows = page.locator("div");
+        rows = page.locator('[role="row"]:visible');
+    if (!await rows.count())
+        rows = page.locator("article:visible");
+    if (!await rows.count())
+        rows = page.locator("li:visible");
+    if (!await rows.count())
+        rows = page.locator('[class*="card" i]:visible');
+    if (!await rows.count())
+        rows = page.locator("div:visible");
     const index = await rows.evaluateAll((elements, wanted) => {
         const __name = window.__name || ((fn) => fn);
         const normalizeBrowser = (value) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -192,10 +205,14 @@ async function candidateFor(page, title, artist, strictArtist = false) {
                 continue;
             const raw = element.innerText || element.textContent || "";
             const lines = raw.split(/\r?\n/).map(comparableBrowser).filter(Boolean);
-            if (!lines.includes(wanted.title))
+            // In some SoundOn tables each cell is separated by tabs/spaces in
+            // innerText rather than newlines. Match the title as a bounded
+            // phrase across the row text as well as as a standalone line.
+            const rowText = ` ${comparableBrowser(raw)} `;
+            if (!lines.includes(wanted.title) && !rowText.includes(` ${wanted.title} `))
                 continue;
             titleMatches.push(rowIndex);
-            const artistMatches = lines.some((line) => line === wanted.artist || line.replace(/^primary artists?\s*/, "") === wanted.artist);
+            const artistMatches = lines.some((line) => line === wanted.artist || line.replace(/^primary artists?\s*/, "") === wanted.artist) || (wanted.artist !== "" && rowText.includes(` ${wanted.artist} `));
             if (!wanted.artist || artistMatches)
                 return rowIndex;
         }

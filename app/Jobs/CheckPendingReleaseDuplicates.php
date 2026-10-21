@@ -48,6 +48,8 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
 
         $jobs->each->update(['progress_label' => 'Menyiapkan pemeriksaan duplikat', 'progress_percent' => 1]);
 
+        $phase = 'validasi sesi platform';
+
         try {
             $soundfresh = $sessions->ensure(Platform::Soundfresh);
             $soundon = $sessions->ensure(Platform::SoundOn);
@@ -61,10 +63,13 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                 'artist' => (string) $job->artist_name,
             ])->all();
             $jobs->each->update(['progress_percent' => 5, 'progress_label' => 'Mencari '.count($lookups).' rilisan di Soundfresh All Releases...']);
+            $phase = 'Soundfresh All Releases';
             $soundfreshMatches = $worker->soundfreshDuplicates($lookups, $soundfresh->session_state_encrypted);
             $jobs->each->update(['progress_percent' => 15, 'progress_label' => 'Memeriksa '.count($lookups).' rilisan di SoundOn All releases...']);
+            $phase = 'SoundOn All Releases';
             $releaseMatches = $worker->releaseDuplicates($lookups, $soundon->session_state_encrypted);
             $jobs->each->update(['progress_percent' => 35, 'progress_label' => 'Memeriksa '.count($lookups).' rilisan di Drafts SoundOn...']);
+            $phase = 'SoundOn Drafts';
             $draftMatches = $worker->findDrafts($lookups, $soundon->session_state_encrypted);
             $total = $jobs->count();
             foreach ($jobs as $index => $job) {
@@ -170,7 +175,7 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                     'status' => ReleaseJobStatus::NeedsAttention,
                     'progress_label' => 'Pemeriksaan duplikat gagal',
                     'error_code' => 'DUPLICATE_CHECK_FAILED',
-                    'error_message' => 'Upload dinonaktifkan karena pemeriksaan duplikat belum berhasil: '.$exception->getMessage(),
+                    'error_message' => "Upload dinonaktifkan karena pemeriksaan duplikat gagal pada {$phase}: ".$exception->getMessage(),
                     'finished_at' => now(),
                 ]);
             $run = AutomationRun::query()->find($this->automationRunId);
