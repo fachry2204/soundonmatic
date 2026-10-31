@@ -999,33 +999,67 @@ export async function setPublisherField(page, value = "Soundfresh.ID", optional 
         throw new Error(`SOUNDON_PUBLISHER_NOT_PERSISTED:${value}`);
 }
 export async function enableStandardMonetization(page, preReleaseDate = "", optionalStep = false) {
-    const monetization = page
-        .getByText("Monetization options", { exact: true })
-        .filter({ visible: true });
-    const youtubeContentId = page
-        .getByText("YouTube Content ID", { exact: true })
-        .filter({ visible: true });
-    if (await monetization.count()) {
-        await monetization.first().click({ force: true });
-        await youtubeContentId.first().waitFor({ state: "visible", timeout: 10_000 });
+    const normalizedText = (text) => text.normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+    const findVisibleText = async (label) => {
+        const exact = page.getByText(label, { exact: true }).filter({ visible: true });
+        if (await exact.count())
+            return exact.first();
+        const normalized = normalizedText(label);
+        const candidates = page.locator("h1:visible,h2:visible,h3:visible,h4:visible,[role='heading']:visible,button:visible");
+        for (let index = 0; index < await candidates.count(); index++) {
+            const candidate = candidates.nth(index);
+            if (normalizedText(await candidate.innerText().catch(() => "")) === normalized)
+                return candidate;
+        }
+        return null;
+    };
+    // SoundOn updates this wizard asynchronously. Give the next step time to
+    // render before classifying it as an incompatible page.
+    let monetization = null;
+    let youtubeContentId = null;
+    const deadline = Date.now() + 12_000;
+    while (Date.now() < deadline) {
+        monetization = await findVisibleText("Monetization options");
+        youtubeContentId = await findVisibleText("YouTube Content ID");
+        if (monetization || youtubeContentId)
+            break;
+        await page.waitForTimeout(400);
     }
-    else if (!(await youtubeContentId.count())) {
+    if (monetization) {
+        await monetization.click({ force: true });
+        const youtubeHeading = page.getByText("YouTube Content ID", { exact: true }).filter({ visible: true }).first();
+        await youtubeHeading.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
+    }
+    else if (!youtubeContentId) {
         if (optionalStep)
             return;
-        throw new Error("SOUNDON_UI_CHANGED:step:Monetization options");
+        const pageState = await page.evaluate(() => ({
+            url: location.pathname,
+            headings: Array.from(document.querySelectorAll("h1,h2,h3,h4,[role=heading]"))
+                .filter((element) => element.offsetParent !== null)
+                .map((element) => element.textContent?.replace(/\s+/g, " ").trim())
+                .filter(Boolean)
+                .slice(0, 12),
+            buttons: Array.from(document.querySelectorAll("button"))
+                .filter((element) => element.offsetParent !== null)
+                .map((element) => element.textContent?.replace(/\s+/g, " ").trim())
+                .filter(Boolean)
+                .slice(0, 12),
+        })).catch(() => ({ url: "unknown", headings: [], buttons: [] }));
+        throw new Error(`SOUNDON_UI_CHANGED:step:Monetization options:state=${JSON.stringify(pageState)}`);
     }
     for (const option of [
         "Commercial Music Licensing",
         "CapCut",
         "YouTube Content ID",
     ]) {
-        const heading = page.getByText(option, { exact: true }).filter({ visible: true });
-        if (!(await heading.count())) {
+        const heading = await findVisibleText(option);
+        if (!heading) {
             if (option === "YouTube Content ID")
                 throw new Error(`SOUNDON_UI_CHANGED:monetization:${option}`);
             continue;
         }
-        let card = heading.first().locator("..");
+        let card = heading.locator("..");
         let toggle = null;
         for (let depth = 0; depth < 6; depth++) {
             const candidate = card.locator('[role="switch"]');
@@ -1759,14 +1793,20 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             // than ARIA options. Prefer the exact result card before
                             // considering the "Add as an artist" footer; otherwise an
                             // existing artist can accidentally enter the create flow.
-                            const currentArtistName = page
-                                .locator(".so-artist-preview-item-artist-name:visible")
-                                .filter({ hasText: exactValue });
-                            if (await currentArtistName.count()) {
-                                // Dispatch on the exact live DOM node. SoundOn's virtual
-                                // list can move a card between Playwright's actionability
-                                // check and a coordinate-based click.
-                                await currentArtistName.first().evaluate((element) => {
+                            const currentArtistNames = page.locator(".so-artist-preview-item-artist-name:visible");
+                            const matchingArtistIndex = await currentArtistNames.evaluateAll((elements, expected) => {
+                                const normalize = (text) => text
+                                    .normalize("NFC")
+                                    .replace(/\s+/g, " ")
+                                    .trim()
+                                    .toLocaleLowerCase();
+                                return elements.findIndex((element) => normalize(element.textContent ?? "") === normalize(String(expected)));
+                            }, value);
+                            if (matchingArtistIndex >= 0) {
+                                // Match canonical Unicode text rather than raw
+                                // code points (e.g. precomposed vs combining
+                                // accents), then click the exact live result.
+                                await currentArtistNames.nth(matchingArtistIndex).evaluate((element) => {
                                     element.click();
                                 });
                                 entitySelected = true;
