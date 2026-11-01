@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chromium } from "playwright";
-import { assertNoValidationErrors, advanceWizardStep, setScopedTime, setSearchField, selectAlbumTrack, waitForUpload, waitForEntityCard, skipBlockedEntity, assertNoSkippedFields } from "./draft-driver.js";
+import { assertNoValidationErrors, advanceWizardStep, setScopedTime, setSearchField, selectAlbumTrack, waitForUpload, waitForEntityCard, skipBlockedEntity, assertNoSkippedFields, selectCreateArtistProfile } from "./draft-driver.js";
 
 describe("SoundOn validation", () => {
     it("closes a blocked editor, allows the next field, but does not report complete metadata", async () => {
@@ -11,7 +11,19 @@ describe("SoundOn validation", () => {
             await skipBlockedEntity(page, 'Contributors', 'Test artist');
             await page.getByLabel('Next field').fill('continued');
             expect(await page.getByLabel('Next field').inputValue()).toBe('continued');
-            expect(() => assertNoSkippedFields(page)).toThrow('Isian dilewati: Contributors: Test artist');
+            expect(() => assertNoSkippedFields(page)).toThrow('SOUNDON_REQUIRED_FIELD_UNRESOLVED:SoundOn menonaktifkan penyimpanan draft');
+            expect(() => assertNoSkippedFields(page)).toThrow('Contributors: Test artist');
+        } finally { await browser.close(); }
+    }, 10000);
+    it("continues past an unresolved optional field without blocking a draft save", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<input aria-label="Next field"><dialog open class="so-form-modal-dialog"><button onclick="this.closest(\'dialog\').close()">Cancel</button></dialog>');
+            await skipBlockedEntity(page, 'Featured artists', 'Optional Guest', true);
+            await page.getByLabel('Next field').fill('continued');
+            expect(await page.getByLabel('Next field').inputValue()).toBe('continued');
+            expect(() => assertNoSkippedFields(page)).not.toThrow();
         } finally { await browser.close(); }
     }, 10000);
     it("does not count search results in an open artist dialog as a saved credit", async () => {
@@ -109,6 +121,17 @@ describe("SoundOn validation", () => {
                 <button onclick="document.querySelector('#saved').textContent=document.querySelector('input').value;this.closest('dialog').close()">Submit</button></dialog>`);
             await setSearchField(page, "Primary artists", "Randy Wahyuda");
             expect(await page.locator("#saved").innerText()).toBe("Randy Wahyuda");
+        } finally { await browser.close(); }
+    }, 10000);
+    it("selects and verifies SoundOn's create-new-artist profile option", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<dialog open><label class="semi-radio"><input type="radio" name="artist-profile" onchange="document.querySelector('button').disabled=false">Create and link to a new artist ID</label><button disabled>Submit</button></dialog>`);
+            const dialog = page.locator("dialog");
+            expect(await selectCreateArtistProfile(dialog)).toBe(true);
+            expect(await dialog.locator('input[type="radio"]').isChecked()).toBe(true);
+            expect(await dialog.getByRole("button", { name: "Submit" }).isEnabled()).toBe(true);
         } finally { await browser.close(); }
     }, 10000);
     it("commits pre-release time through the SoundOn option instead of transient input text", async () => {

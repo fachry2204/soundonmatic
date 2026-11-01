@@ -205,6 +205,13 @@ final class ProcessReleaseJob implements ShouldQueue
                             'soundon_draft_status' => $alreadyExists ? 'already_exists' : 'created',
                             'checkpoint' => ReleaseCheckpoint::DraftSaved,
                         ]);
+                        if (! empty($draft['warnings']) && is_array($draft['warnings'])) {
+                            $this->event(
+                                $job,
+                                'soundon_optional_metadata_skipped',
+                                'Draft tetap tersimpan. SoundOn tidak menerima field opsional berikut: '.implode('; ', array_map('strval', $draft['warnings'])).'. Periksa detail rilisan jika nilai tersebut diperlukan.',
+                            );
+                        }
                         if ($alreadyExists) {
                             $this->event($job, 'soundon_draft_already_exists', 'Pemeriksaan terakhir worker menemukan judul dan artis yang sama. Draft baru tidak dibuat.');
                         }
@@ -429,6 +436,21 @@ final class ProcessReleaseJob implements ShouldQueue
 
     private function humanErrorMessage(string $code, string $raw): string
     {
+        if ($code === 'SOUNDON_ENTITY_MATCH_REQUIRED'
+            && preg_match('/^SOUNDON_ENTITY_MATCH_REQUIRED:([^:]+):([^:]+):profiles=(\d+):submit=(enabled|disabled):dialog=(.*)$/is', trim($raw), $match)) {
+            $reason = (int) $match[3] === 0
+                ? 'SoundOn tidak menampilkan profil yang cocok untuk dipilih.'
+                : 'SoundOn menampilkan profil tetapi tidak mengizinkan pilihan disimpan.';
+            $button = strtolower($match[4]) === 'disabled'
+                ? ' Tombol simpan draft juga nonaktif.'
+                : '';
+
+            return mb_substr(
+                'Sumber: SoundOn. Field "'.$match[1].'" untuk nilai "'.$match[2].'" gagal dipilih. '.$reason.$button.' Draft tidak dikonfirmasi tersimpan; status Soundfresh tetap Pending. Buat/pilih profil yang sesuai di SoundOn lalu Retry. Detail teknis: '.$raw,
+                0,
+                2000,
+            );
+        }
         $detail = match ($code) {
             'AUDIO_INVALID' => 'Audio tidak sesuai persyaratan SoundOn. Periksa format WAV/FLAC, codec, sample rate, durasi, dan kondisi file.',
             'COVER_INVALID' => 'Cover art tidak sesuai persyaratan SoundOn. Periksa format JPG/PNG, dimensi, ukuran, dan kondisi file.',
@@ -444,6 +466,8 @@ final class ProcessReleaseJob implements ShouldQueue
             'ORIGINAL_RELEASE_DATE_INVALID' => 'Original Released Date tidak valid atau belum diisi untuk rilis yang memiliki UPC.',
             'METADATA_MAPPING_MISSING' => 'Nilai bahasa, genre, subgenre, versi, atau role belum memiliki pilihan yang sesuai di SoundOn. Detail menunjukkan field dan nilainya; perbaiki mapping lalu tekan Retry.',
             'SOUNDON_ENTITY_MATCH_REQUIRED' => 'Nama artis atau contributor tidak menghasilkan pilihan yang dapat dipilih di SoundOn. Periksa ejaan nama dan role di Soundfresh atau buat profil artis di SoundOn, lalu tekan Retry.',
+            'SOUNDON_REQUIRED_FIELD_UNRESOLVED' => 'Sumber: SoundOn. Draft tidak bisa disimpan karena field wajib yang disebutkan di detail tidak berhasil dipilih. Status Soundfresh tetap Pending karena draft belum terkonfirmasi. Perbaiki field/profil di SoundOn lalu tekan Retry.',
+            'SOUNDON_ARTIST_CREATE_FAILED' => 'Sumber: SoundOn. Opsi Add as an artist sudah dipilih, tetapi pemilihan profil artis baru atau tombol Submit tidak berhasil dikonfirmasi. Draft belum tersimpan dan status Soundfresh tetap Pending. Periksa dialog pembuatan artis di SoundOn lalu tekan Retry. Detail teknis menunjukkan field dan nama artis.',
             'SOUNDON_CONTRIBUTOR_NOT_PERSISTED' => 'Artis, songwriter, lyricist, atau contributor sudah dicoba tetapi tidak tersimpan pada form SoundOn. Periksa nama/role dan kecocokan profil, lalu tekan Retry.',
             'SOUNDON_FORM_VALIDATION' => 'SoundOn menolak metadata pada form. Periksa detail field yang bermasalah sebelum Retry; proses tidak melanjutkan dengan data yang tidak lengkap.',
             'SOUNDON_FIELD_NOT_PERSISTED' => 'Nilai field sudah diisi tetapi tidak disimpan oleh form SoundOn. Detail menunjukkan field terkait; refresh sesi SoundOn lalu tekan Retry.',

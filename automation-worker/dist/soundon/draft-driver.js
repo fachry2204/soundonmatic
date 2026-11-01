@@ -10,6 +10,7 @@ const entitySaveTimeout = 12_000;
 const entityPersistTimeout = 6_000;
 const entityMaxRetries = 1;
 const skippedFields = new WeakMap();
+const optionalFieldWarnings = new WeakMap();
 export function canSkipEntityError(message) {
     return /^SOUNDON_UI_CHANGED:(blocking_dialog|stale_dialog):/.test(message)
         || (/^SOUNDON_ENTITY_MATCH_REQUIRED:/.test(message)
@@ -18,9 +19,9 @@ export function canSkipEntityError(message) {
 export function assertNoSkippedFields(page) {
     const skipped = skippedFields.get(page) ?? [];
     if (skipped.length)
-        throw new Error(`SOUNDON_FORM_VALIDATION:Metadata belum lengkap. Isian dilewati: ${[...new Set(skipped)].join('; ')}`);
+        throw new Error(`SOUNDON_REQUIRED_FIELD_UNRESOLVED:SoundOn menonaktifkan penyimpanan draft karena field wajib tidak berhasil dipilih. Isian: ${[...new Set(skipped)].join('; ')}`);
 }
-export async function skipBlockedEntity(page, field, value) {
+export async function skipBlockedEntity(page, field, value, optional = false) {
     const dialogs = page.locator('dialog.so-form-modal-dialog:visible');
     for (let attempt = 0; attempt < 3 && await dialogs.count(); attempt++) {
         const dialog = dialogs.last();
@@ -33,15 +34,50 @@ export async function skipBlockedEntity(page, field, value) {
     }
     if (await dialogs.count())
         throw new Error(`SOUNDON_FORM_VALIDATION:Dialog masih menghalangi ${field}; tidak aman melanjutkan ke kolom lain`);
+    if (optional) {
+        const warnings = optionalFieldWarnings.get(page) ?? [];
+        optionalFieldWarnings.set(page, [...warnings, `${field}: ${value}`]);
+        console.warn(JSON.stringify({ event: 'optional_metadata_field_skipped', field, value, source: 'SoundOn' }));
+        return;
+    }
     skippedFields.set(page, [...(skippedFields.get(page) ?? []), `${field}: ${value}`]);
-    console.warn(JSON.stringify({ event: 'metadata_field_skipped', field, value }));
+    console.warn(JSON.stringify({ event: 'required_metadata_field_unresolved', field, value, source: 'SoundOn' }));
+}
+export async function selectCreateArtistProfile(dialog) {
+    const options = dialog.locator("label.semi-radio").filter({ hasText: "Create and link to a new artist ID" });
+    for (let index = 0; index < await options.count(); index++) {
+        const option = options.nth(index);
+        const radio = option.locator('input[type="radio"]');
+        const isSelected = async () => {
+            if (await radio.count() && await radio.isChecked().catch(() => false))
+                return true;
+            return (await option.getAttribute("aria-checked")) === "true"
+                || /semi-radio-checked/.test((await option.getAttribute("class")) ?? "");
+        };
+        const alreadySelected = await isSelected();
+        if (!alreadySelected) {
+            if (await radio.count())
+                await radio.check({ force: true }).catch(() => option.click({ force: true }));
+            else
+                await option.click({ force: true });
+        }
+        await dialog.page().waitForTimeout(300);
+        if (await isSelected())
+            return true;
+    }
+    return false;
 }
 export async function createDraft(page, registry, metadata, action) {
     assertDraftOnly(action);
+    let draft;
     if (registry.soundon.configured) {
-        return createFromRegistry(page, registry, metadata);
+        draft = await createFromRegistry(page, registry, metadata);
     }
-    return createKnownSoundOnDraft(page, metadata);
+    else {
+        draft = await createKnownSoundOnDraft(page, metadata);
+    }
+    const warnings = [...new Set(optionalFieldWarnings.get(page) ?? [])];
+    return warnings.length ? { ...draft, warnings } : draft;
 }
 async function createFromRegistry(page, registry, metadata) {
     if (!registry.soundon.createButton || !registry.soundon.saveDraftButton)
@@ -1603,7 +1639,7 @@ export async function setSearchField(page, label, value, optional = false, entit
     catch (error) {
         console.log(JSON.stringify({ event: "metadata_field_failed", field: label, value, elapsed_ms: Date.now() - started }));
         if (error instanceof Error && canSkipEntityError(error.message)) {
-            await skipBlockedEntity(page, label, value);
+            await skipBlockedEntity(page, label, value, optional);
             return;
         }
         throw error;
@@ -1920,10 +1956,15 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             hasText: "Create and link to a new artist ID",
                         });
                         const profileCount = await createProfileIds.count();
-                        for (let profile = 0; profile < profileCount; profile++) {
-                            // Both newly typed names and selected SoundOn suggestions
-                            // can require Spotify/Apple profile decisions.
-                            await createProfileIds.nth(profile).click({ force: true });
+                        if (profileCount > 0) {
+                            // SoundOn may leave Submit disabled until this radio
+                            // is actually selected. Clicking only the styled label
+                            // was not reliable across browser builds; select the
+                            // underlying radio when available and verify state.
+                            const selected = await selectCreateArtistProfile(dialog);
+                            if (!selected && createdEntity) {
+                                throw new Error(`SOUNDON_ARTIST_PROFILE_CREATE_NOT_SELECTED:${label}:${value}`);
+                            }
                         }
                         if (createdEntity || profileCount > 0)
                             await page.waitForTimeout(300);
@@ -1956,6 +1997,9 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                                 .replace(/\s+/g, " ")
                                 .trim()
                                 .slice(0, 500);
+                            if (createdEntity) {
+                                throw new Error(`SOUNDON_ARTIST_CREATE_SUBMIT_DISABLED:${label}:${value}:${dialogMessage}`);
+                            }
                             throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:submit_disabled:${dialogMessage}`);
                         }
                         await resilientClick(submitButton);

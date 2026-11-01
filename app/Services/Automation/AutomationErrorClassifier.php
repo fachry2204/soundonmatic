@@ -34,6 +34,13 @@ final class AutomationErrorClassifier
             return ['code' => 'NETWORK_TIMEOUT', 'disposition' => 'retry'];
         }
         $message = strtoupper($error->getMessage());
+        if (str_contains($message, 'SOUNDON_REQUIRED_FIELD_UNRESOLVED')) {
+            return ['code' => 'SOUNDON_REQUIRED_FIELD_UNRESOLVED', 'disposition' => 'needs_attention'];
+        }
+        if (str_contains($message, 'SOUNDON_ARTIST_PROFILE_CREATE_NOT_SELECTED')
+            || str_contains($message, 'SOUNDON_ARTIST_CREATE_SUBMIT_DISABLED')) {
+            return ['code' => 'SOUNDON_ARTIST_CREATE_FAILED', 'disposition' => 'needs_attention'];
+        }
         if (str_contains($message, 'SOUNDON_FORM_VALIDATION')) {
             return ['code' => 'SOUNDON_FORM_VALIDATION', 'disposition' => 'needs_attention'];
         }
