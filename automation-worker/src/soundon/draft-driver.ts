@@ -49,6 +49,7 @@ export async function skipBlockedEntity(page: Page, field: string, value: string
 
 export async function selectCreateArtistProfile(dialog: Locator): Promise<boolean> {
     const options = dialog.locator("label.semi-radio").filter({ hasText: "Create and link to a new artist ID" });
+    let selectedAny = false;
     for (let index = 0; index < await options.count(); index++) {
         const option = options.nth(index);
         const radio = option.locator('input[type="radio"]');
@@ -63,9 +64,10 @@ export async function selectCreateArtistProfile(dialog: Locator): Promise<boolea
             else await option.click({ force: true });
         }
         await dialog.page().waitForTimeout(300);
-        if (await isSelected()) return true;
+        if (!await isSelected()) return false;
+        selectedAny = true;
     }
-    return false;
+    return selectedAny;
 }
 
 export async function createDraft(
@@ -2069,11 +2071,6 @@ async function setSearchFieldValue(
                 await initialDialogInput
                     .waitFor({ state: "visible", timeout: 10_000 })
                     .catch(() => undefined);
-                await dialog
-                    .getByRole("button", { name: "Submit", exact: true })
-                    .first()
-                    .waitFor({ state: "visible", timeout: 10_000 })
-                    .catch(() => undefined);
                 for (let dialogDepth = 0; dialogDepth < (hasNativeDialog ? 1 : 6); dialogDepth++) {
                     const input = contributorRole
                         ? page.locator(
@@ -2081,7 +2078,10 @@ async function setSearchFieldValue(
                           )
                         : dialog.locator('input[type="text"]:visible');
                     const submit = dialog.getByRole("button", { name: "Submit", exact: true });
-                    if ((await input.count()) && (await submit.count())) {
+                    // The name-search dialog has no Submit button until an
+                    // existing result or Add "name" as an artist is selected.
+                    // Requiring Submit here prevented that first selection.
+                    if (await input.count()) {
                         // Contributor dropdowns live in a portal outside the
                         // dialog. The newest (last) visible input belongs to
                         // the editor we just opened; an older portal can remain
@@ -2095,13 +2095,14 @@ async function setSearchFieldValue(
                         const exactValue = new RegExp(`^${escapedValue}$`, "i");
                         let entitySelected = false;
                         let createdEntity = false;
+                        const entityScope = dialog.or(page.locator(".semi-portal:visible,.semi-select-dropdown:visible"));
                         const deadline = Date.now() + entityResultTimeout;
                         while (Date.now() < deadline && !entitySelected) {
                             // SoundOn's current artist results are plain divs rather
                             // than ARIA options. Prefer the exact result card before
                             // considering the "Add as an artist" footer; otherwise an
                             // existing artist can accidentally enter the create flow.
-                            const currentArtistNames = page.locator(".so-artist-preview-item-artist-name:visible");
+                            const currentArtistNames = entityScope.locator(".so-artist-preview-item-artist-name:visible");
                             const matchingArtistIndex = await currentArtistNames.evaluateAll((elements, expected) => {
                                 const normalize = (text: string) => text
                                     .normalize("NFC")
@@ -2120,7 +2121,7 @@ async function setSearchFieldValue(
                                 entitySelected = true;
                                 break;
                             }
-                            const option = page.getByRole("option", { name: exactValue }).filter({ visible: true });
+                            const option = entityScope.getByRole("option", { name: exactValue }).filter({ visible: true });
                             if (await option.count()) {
                                 await resilientClick(option.first());
                                 entitySelected = true;
@@ -2151,16 +2152,11 @@ async function setSearchFieldValue(
                                 entitySelected = true;
                                 break;
                             }
-                            const addAsEntityOption = page
-                                .locator(
-                                    ".semi-select-option-list-outer-bottom-slot:visible",
-                                )
-                                .filter({
-                                    hasText: new RegExp(
-                                        `Add\\s+["“']?${escapedValue}["”']?\\s+as\\s+(?:an?\\s+)?(?:artist|songwriter|lyricist|contributor)`,
-                                        "i",
-                                    ),
-                                })
+                            const addAsEntityOption = entityScope
+                                .getByText(new RegExp(
+                                    `^\\s*\\+?\\s*Add\\s+["“']?${escapedValue}["”']?\\s+as\\s+(?:an?\\s+)?(?:artist|songwriter|lyricist|contributor)\\s*$`,
+                                    "i",
+                                ))
                                 .filter({ visible: true });
                             if (await addAsEntityOption.count()) {
                                 await addAsEntityOption.first().click({ force: true });
@@ -2168,17 +2164,8 @@ async function setSearchFieldValue(
                                 createdEntity = true;
                                 break;
                             }
-                            const activePortal = activeInput.locator(
-                                "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' semi-portal ')][1]",
-                            );
-                            const optionScope = await activePortal.count()
-                                ? activePortal
-                                : page.locator(".semi-portal:visible").last();
-                            const genericAddEntityOption = optionScope
-                                .getByText(new RegExp(
-                                    `(?:["“']?${escapedValue}["”']?.*)?as (?:an? )?(?:artist|songwriter|lyricist|contributor)`,
-                                    "i",
-                                ))
+                            const genericAddEntityOption = entityScope
+                                .getByText(/^\s*\+?\s*Add\s+as\s+(?:an?\s+)?(?:artist|songwriter|lyricist|contributor)\s*$/i)
                                 .filter({ visible: true });
                             if (await genericAddEntityOption.count()) {
                                 await genericAddEntityOption.last().click({ force: true });
@@ -2220,6 +2207,7 @@ async function setSearchFieldValue(
                             return;
                         }
                         await page.waitForTimeout(300);
+                        await submit.first().waitFor({ state: "visible", timeout: entitySubmitTimeout });
                         // The create option can reveal a form prefilled with
                         // the previous modal's person. Correct that form before
                         // validating the selected value.
@@ -2301,6 +2289,13 @@ async function setSearchFieldValue(
                             entitySaveTimeout,
                         );
                         if (!savedAfterSubmit) {
+                            // Capture the actual failing form before Cancel
+                            // hides its inputs and text; hidden-dialog counts
+                            // previously produced misleading profiles=0 details.
+                            const selectedProfiles = await dialog.locator('input[type="radio"]:checked').count();
+                            const submitEnabled = await submit.first().isEnabled().catch(() => false);
+                            const dialogMessage = (await dialog.innerText().catch(() => ""))
+                                .replace(/\s+/g, " ").trim().slice(0, 500);
                             const cancel = dialog
                                 .getByRole("button", { name: "Cancel", exact: true })
                                 .filter({ visible: true });
@@ -2330,20 +2325,6 @@ async function setSearchFieldValue(
                                 );
                             }
                             if (optional) return;
-                            const selectedProfiles = await dialog
-                                .locator('input[type="radio"]:checked')
-                                .count()
-                                .catch(() => 0);
-                            const submitEnabled = await submit
-                                .first()
-                                .isEnabled()
-                                .catch(() => false);
-                            const dialogMessage = (await dialog
-                                .innerText()
-                                .catch(() => ""))
-                                .replace(/\s+/g, " ")
-                                .trim()
-                                .slice(0, 500);
                             throw new Error(
                                 `SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:profiles=${selectedProfiles}:submit=${submitEnabled ? "enabled" : "disabled"}:dialog=${dialogMessage}`,
                             );

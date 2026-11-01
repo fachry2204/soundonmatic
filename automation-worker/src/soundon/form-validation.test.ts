@@ -123,14 +123,35 @@ describe("SoundOn validation", () => {
             expect(await page.locator("#saved").innerText()).toBe("Randy Wahyuda");
         } finally { await browser.close(); }
     }, 10000);
+    it.each(['Nightrize', "Starkid's", 'ALVEΛ'])('creates %s when Submit appears only after Add as an artist', async (name) => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><span class="soundon-formik-field-label">Primary artists</span><span id="saved"></span>
+                <button onclick="document.querySelector('dialog').showModal()">Add</button></section>
+                <dialog class="so-form-modal-dialog"><h4>Add primary artist</h4><label>Artist name</label>
+                <div class="semi-select-content-wrapper"><input id="artist-name" type="text" oninput="document.querySelector('#add-artist').textContent='Add &quot;'+this.value+'&quot; as an artist'"></div>
+                <p>No matching artists found</p>
+                <div id="add-artist" onclick="window.created=true;document.querySelector('#profile').append(document.querySelector('template').content.cloneNode(true));this.remove()">Add as an artist</div>
+                <div id="profile"></div></dialog>
+                <template><label class="semi-radio"><input type="radio" onchange="this.closest('dialog').querySelector('button').disabled=false">Create and link to a new artist ID</label>
+                <button disabled onclick="document.querySelector('#saved').textContent=document.querySelector('#artist-name').value;this.closest('dialog').close()">Submit</button></template>`);
+            expect(await page.locator('dialog').getByRole('button', { name: 'Submit' }).count()).toBe(0);
+            await setSearchField(page, 'Primary artists', name);
+            expect(await page.evaluate(() => (window as any).created)).toBe(true);
+            expect(await page.locator('#saved').innerText()).toBe(name);
+            expect(await page.locator('dialog').isVisible()).toBe(false);
+        } finally { await browser.close(); }
+    }, 30000);
     it("selects and verifies SoundOn's create-new-artist profile option", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
             const page = await browser.newPage();
-            await page.setContent(`<dialog open><label class="semi-radio"><input type="radio" name="artist-profile" onchange="document.querySelector('button').disabled=false">Create and link to a new artist ID</label><button disabled>Submit</button></dialog>`);
+            await page.setContent(`<dialog open><label class="semi-radio"><input type="radio" name="spotify-profile" onchange="document.querySelector('button').disabled=document.querySelectorAll('input:checked').length!==2">Create and link to a new artist ID</label>
+                <label class="semi-radio"><input type="radio" name="apple-profile" onchange="document.querySelector('button').disabled=document.querySelectorAll('input:checked').length!==2">Create and link to a new artist ID</label><button disabled>Submit</button></dialog>`);
             const dialog = page.locator("dialog");
             expect(await selectCreateArtistProfile(dialog)).toBe(true);
-            expect(await dialog.locator('input[type="radio"]').isChecked()).toBe(true);
+            expect(await dialog.locator('input[type="radio"]:checked').count()).toBe(2);
             expect(await dialog.getByRole("button", { name: "Submit" }).isEnabled()).toBe(true);
         } finally { await browser.close(); }
     }, 10000);

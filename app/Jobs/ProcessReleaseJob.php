@@ -439,10 +439,10 @@ final class ProcessReleaseJob implements ShouldQueue
         if ($code === 'SOUNDON_ENTITY_MATCH_REQUIRED'
             && preg_match('/^SOUNDON_ENTITY_MATCH_REQUIRED:([^:]+):([^:]+):profiles=(\d+):submit=(enabled|disabled):dialog=(.*)$/is', trim($raw), $match)) {
             $reason = (int) $match[3] === 0
-                ? 'SoundOn tidak menampilkan profil yang cocok untuk dipilih.'
-                : 'SoundOn menampilkan profil tetapi tidak mengizinkan pilihan disimpan.';
+                ? 'SoundOn belum mengonfirmasi artis tersimpan; tidak ada pilihan ID/profil yang tercatat terpilih di dialog.'
+                : 'Pilihan ID/profil sudah terpilih tetapi SoundOn belum mengonfirmasi artis tersimpan.';
             $button = strtolower($match[4]) === 'disabled'
-                ? ' Tombol simpan draft juga nonaktif.'
+                ? ' Tombol Submit pada dialog artis nonaktif.'
                 : '';
 
             return mb_substr(
