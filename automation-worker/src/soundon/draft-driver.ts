@@ -23,11 +23,11 @@ export function canSkipEntityError(message: string): boolean {
 
 export function assertNoSkippedFields(page: Page): void {
     const skipped = skippedFields.get(page) ?? [];
-    if (skipped.length) throw new Error(`SOUNDON_REQUIRED_FIELD_UNRESOLVED:SoundOn menonaktifkan penyimpanan draft karena field wajib tidak berhasil dipilih. Isian: ${[...new Set(skipped)].join('; ')}`);
+    if (skipped.length) throw new Error(`SOUNDON_REQUIRED_FIELD_UNRESOLVED:Isian wajib belum terkonfirmasi tersimpan pada form. Isian: ${[...new Set(skipped)].join('; ')}`);
 }
 
 export async function skipBlockedEntity(page: Page, field: string, value: string, optional = false): Promise<void> {
-    const dialogs = page.locator('dialog.so-form-modal-dialog:visible');
+    const dialogs = page.locator('.so-form-modal-dialog:visible');
     for (let attempt = 0; attempt < 3 && await dialogs.count(); attempt++) {
         const dialog = dialogs.last();
         await page.keyboard.press('Escape').catch(() => undefined);
@@ -906,8 +906,7 @@ async function setPrimaryArtists(
     for (const artist of artists) {
         // Album tracks can inherit the release artist. Do not open Add again
         // for the same exact credit; the duplicate dialog may never submit.
-        const existing = await fieldContainer(page, "Primary artists", true);
-        if (existing && await existing.getByText(artist, { exact: true }).filter({ visible: true }).count()) continue;
+        if (await waitForEntityCard(page, "Primary artists", artist, 150)) continue;
         await setSearchField(page, "Primary artists", artist, false);
         // Complete and persist one artist before opening Add for the next
         // artist. This is essential for releases with several primary artists.
@@ -1108,7 +1107,7 @@ async function fieldContainer(
 
 async function dismissVisibleEntityDialogs(page: Page): Promise<void> {
     await page.waitForTimeout(300);
-    const dialogs = page.locator("dialog.so-form-modal-dialog:visible");
+    const dialogs = page.locator(".so-form-modal-dialog:visible");
     let dismissAttempts = 0;
     while ((await dialogs.count()) > 0) {
         if (++dismissAttempts > 3) throw new Error('SOUNDON_UI_CHANGED:entity_dialog_will_not_close');
@@ -1146,7 +1145,7 @@ export async function setTextField(
     // A failed/slow optional entity submit can leave SoundOn's legacy modal
     // visible even after its value has been accepted. Clear only stale entity
     // modals before opening the next field so their overlay cannot intercept it.
-    const staleDialogs = page.locator("dialog.so-form-modal-dialog:visible");
+    const staleDialogs = page.locator(".so-form-modal-dialog:visible");
     let staleAttempts = 0;
     while ((await staleDialogs.count()) > 0) {
         if (++staleAttempts > 3) throw new Error(`SOUNDON_UI_CHANGED:stale_dialog:${label}`);
@@ -1190,7 +1189,19 @@ export async function setTextField(
         await page.waitForTimeout(300);
         return;
     }
-    await input.fill(value);
+    await pasteInputValue(input, value);
+    if (!/date/i.test(label)) {
+        // Formik can accept transient input text then reset it on blur.
+        // Verify the committed value and retry once before moving on.
+        for (let attempt = 0; attempt < 2; attempt++) {
+            await input.evaluate(element => (element as HTMLInputElement).blur());
+            await page.waitForTimeout(150);
+            const actual = await input.inputValue();
+            if (actual.normalize("NFC") === value.normalize("NFC")) return;
+            if (attempt === 0) await pasteInputValue(input, value);
+            else throw new Error(`SOUNDON_FIELD_NOT_PERSISTED:${label}:expected=${value}:actual=${actual}`);
+        }
+    }
 }
 
 export async function setPublisherField(
@@ -1488,7 +1499,7 @@ export async function setTikTokPreRelease(
 async function closeOpenDatePicker(page: Page): Promise<void> {
     await page.keyboard.press("Escape").catch(() => undefined);
     const picker = page.locator(
-        ".semi-datepicker:visible,.semi-datepicker-month-grid:visible,.semi-calendar:visible,.semi-portal:visible .semi-datepicker",
+        ".semi-datepicker:visible,.semi-datepicker-month-grid:visible,.semi-calendar:visible,.semi-portal .semi-datepicker:visible",
     ).first();
     if (!(await picker.count()) || !(await picker.isVisible().catch(() => false))) return;
 
@@ -1844,7 +1855,7 @@ export async function setChoiceField(
         return;
     }
     const portalOption = page
-        .locator(".semi-portal:visible,.semi-select-dropdown:visible")
+        .locator(".semi-portal,.semi-select-dropdown")
         .getByText(value, { exact: true })
         .filter({ visible: true });
     if ((await portalOption.count()) >= 1) {
@@ -1861,7 +1872,7 @@ export async function setChoiceField(
     // Long language/genre lists are virtualized. Search the open dropdown so
     // options outside the initial viewport (for example Malay) are rendered.
     let dropdownSearch = page
-        .locator(".semi-portal:visible input:visible,.semi-select-dropdown:visible input:visible")
+        .locator(".semi-portal input:visible,.semi-select-dropdown input:visible")
         .first();
     if (
         (await dropdownSearch.count()) === 0 &&
@@ -1905,7 +1916,8 @@ export async function setSearchField(
         await setSearchFieldValue(page, label, value, optional, entityRetry, contributorRole);
         console.log(JSON.stringify({ event: "metadata_field_completed", field: label, value, elapsed_ms: Date.now() - started }));
     } catch (error) {
-        console.log(JSON.stringify({ event: "metadata_field_failed", field: label, value, elapsed_ms: Date.now() - started }));
+        console.log(JSON.stringify({ event: "metadata_field_failed", field: label, value, role: contributorRole || undefined,
+            error: error instanceof Error ? error.message : String(error), elapsed_ms: Date.now() - started }));
         if (error instanceof Error && canSkipEntityError(error.message)) {
             await skipBlockedEntity(page, label, value, optional);
             return;
@@ -1923,6 +1935,7 @@ async function setSearchFieldValue(
     contributorRole = "",
 ): Promise<void> {
     if (!value && optional) return;
+    if (!contributorRole && await waitForEntityCard(page, label, value, 100)) return;
 
     let fieldLabel = page
         .locator(".soundon-formik-field-label")
@@ -1963,7 +1976,7 @@ async function setSearchFieldValue(
             }
             if ((await add.count()) === 1) {
                 await page.waitForTimeout(500);
-                const blockingDialogs = page.locator("dialog.so-form-modal-dialog:visible");
+                const blockingDialogs = page.locator(".so-form-modal-dialog:visible");
                 let blockingAttempts = 0;
                 while ((await blockingDialogs.count()) > 0) {
                     const blocking = blockingDialogs.last();
@@ -2018,16 +2031,16 @@ async function setSearchFieldValue(
                 const editorId = `entity-${Date.now()}-${Math.random().toString(36).slice(2)}`;
                 await dialog.evaluate((element, id) => element.setAttribute('data-automation-editor', id), editorId);
                 dialog = page.locator(`[data-automation-editor="${editorId}"]`);
-                if (hasNativeDialog) {
+                if (hasNativeDialog || contributorRole || await dialog.locator('.semi-select-content-wrapper:visible,[role="combobox"]:visible').count()) {
                     let selectControl = dialog.locator(
                         ".semi-select-content-wrapper:visible",
                     );
                     if (!(await selectControl.count())) {
                         selectControl = dialog.locator('[role="combobox"]:visible');
                     }
-                    if ((await selectControl.count()) === 0)
-                        throw new Error(`SOUNDON_UI_CHANGED:artist_select:${label}`);
-                    if (contributorRole) {
+                    if ((await selectControl.count()) === 0) {
+                        if (contributorRole) throw new Error(`SOUNDON_UI_CHANGED:contributor_controls:${label}`);
+                    } else if (contributorRole) {
                         if ((await selectControl.count()) < 2)
                             throw new Error(`SOUNDON_UI_CHANGED:contributor_controls:${label}`);
                         await selectControl.first().locator("..").click({ force: true });
@@ -2064,7 +2077,7 @@ async function setSearchFieldValue(
                 }
                 const dialogInput = contributorRole
                     ? page.locator(
-                          '.semi-select-open:visible input[type="text"]:visible,.semi-select-focus:visible input[type="text"]:visible,.semi-portal:visible input[type="text"]:visible',
+                          '.semi-select-open:visible input[type="text"]:visible,.semi-select-focus:visible input[type="text"]:visible,.semi-portal input[type="text"]:visible',
                       )
                     : dialog.locator('input[type="text"]:visible');
                 const initialDialogInput = contributorRole ? dialogInput.last() : dialogInput.first();
@@ -2074,7 +2087,7 @@ async function setSearchFieldValue(
                 for (let dialogDepth = 0; dialogDepth < (hasNativeDialog ? 1 : 6); dialogDepth++) {
                     const input = contributorRole
                         ? page.locator(
-                              '.semi-select-open:visible input[type="text"]:visible,.semi-select-focus:visible input[type="text"]:visible,.semi-portal:visible input[type="text"]:visible',
+                              '.semi-select-open:visible input[type="text"]:visible,.semi-select-focus:visible input[type="text"]:visible,.semi-portal input[type="text"]:visible',
                           )
                         : dialog.locator('input[type="text"]:visible');
                     const submit = dialog.getByRole("button", { name: "Submit", exact: true });
@@ -2095,7 +2108,10 @@ async function setSearchFieldValue(
                         const exactValue = new RegExp(`^${escapedValue}$`, "i");
                         let entitySelected = false;
                         let createdEntity = false;
-                        const entityScope = dialog.or(page.locator(".semi-portal:visible,.semi-select-dropdown:visible"));
+                        // Semi portals can have a zero-size wrapper while the
+                        // dropdown's children are visible. Check visibility on
+                        // the actual options, not the portal container.
+                        const entityScope = dialog.or(page.locator(".semi-portal,.semi-select-dropdown,[role=listbox]"));
                         const deadline = Date.now() + entityResultTimeout;
                         while (Date.now() < deadline && !entitySelected) {
                             // SoundOn's current artist results are plain divs rather
@@ -2144,7 +2160,7 @@ async function setSearchFieldValue(
                                 break;
                             }
                             const exactTextOption = page
-                                .locator(".semi-portal:visible")
+                                .locator(".semi-portal")
                                 .getByText(value, { exact: true })
                                 .filter({ visible: true });
                             if ((await exactTextOption.count()) === 1) {
@@ -2174,7 +2190,7 @@ async function setSearchFieldValue(
                                 break;
                             }
                             const createOption = page
-                                .locator(".semi-portal:visible")
+                                .locator(".semi-portal")
                                 .getByText(new RegExp(`^(?:Create|Add)(?: new)?(?: artist)?\\s*["“']?${escapedValue}["”']?$`, "i"))
                                 .filter({ visible: true });
                             if (await createOption.count()) {
@@ -2296,6 +2312,11 @@ async function setSearchFieldValue(
                             const submitEnabled = await submit.first().isEnabled().catch(() => false);
                             const dialogMessage = (await dialog.innerText().catch(() => ""))
                                 .replace(/\s+/g, " ").trim().slice(0, 500);
+                            const validationErrors = await dialog.locator('[role="alert"]:visible,.semi-form-field-error-message:visible,.soundon-formik-field-error:visible')
+                                .allTextContents().catch(() => [] as string[]);
+                            console.warn(JSON.stringify({ event: 'metadata_entity_save_unconfirmed', field: label, value, role: contributorRole,
+                                dialog_visible: await dialog.isVisible().catch(() => false), selected_profiles: selectedProfiles,
+                                submit_enabled: submitEnabled, dialog: dialogMessage, errors: validationErrors }));
                             const cancel = dialog
                                 .getByRole("button", { name: "Cancel", exact: true })
                                 .filter({ visible: true });
@@ -2313,6 +2334,7 @@ async function setSearchFieldValue(
                                     .waitFor({ state: "hidden", timeout: 5_000 })
                                     .catch(() => undefined);
                             }
+                            if (!contributorRole && await waitForEntityCard(page, label, value, entityPersistTimeout)) return;
                             if (!optional && entityRetry < entityMaxRetries) {
                                 await page.waitForTimeout(1_000);
                                 return setSearchField(
@@ -2326,7 +2348,7 @@ async function setSearchFieldValue(
                             }
                             if (optional) return;
                             throw new Error(
-                                `SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:profiles=${selectedProfiles}:submit=${submitEnabled ? "enabled" : "disabled"}:dialog=${dialogMessage}`,
+                                `SOUNDON_CONTRIBUTOR_NOT_PERSISTED:${label}:${value}:stage=submit_verification:role=${contributorRole || "none"}:profiles=${selectedProfiles}:submit=${submitEnabled ? "enabled" : "disabled"}:errors=${validationErrors.join('; ')}:dialog=${dialogMessage}`,
                             );
                         }
                         // SoundOn can re-parent the saved entity card after the
@@ -2347,7 +2369,7 @@ async function setSearchFieldValue(
                                 );
                             }
                             throw new Error(
-                                `SOUNDON_CONTRIBUTOR_NOT_PERSISTED:${label}:${value}`,
+                                `SOUNDON_CONTRIBUTOR_NOT_PERSISTED:${label}:${value}:stage=verify_after_submit:role=${contributorRole || "none"}`,
                             );
                         }
                         return;
@@ -2437,10 +2459,27 @@ async function ensureDialogEntityName(
     // Contributor dialogs also contain a Role control. Never guess an input
     // when the explicit Artist name label is unavailable.
     if (labelCount === 0 && contributorRole) return;
-    const resolvedInput = labelCount > 0
-        ? await closestInputBelowLabel(dialog, labels.first(), 'input[type="text"]')
-        : dialog.locator('input[type="text"]:visible').first();
-    if (!(await resolvedInput.count())) return;
+    let resolvedInput: Locator | null = null;
+    const explicitName = dialog.locator('input[name="artistName"],input[name="name"],input[id="artistName"],input[aria-label="Artist name"],input[aria-label="Name"]')
+        .filter({ visible: true });
+    if (await explicitName.count() === 1) resolvedInput = explicitName;
+    if (!resolvedInput && labelCount > 0) {
+        const group = labels.first().locator('xpath=ancestor::*[@data-so-field-id or contains(concat(" ",normalize-space(@class)," ")," semi-form-field ")][1]');
+        if (await group.count()) {
+            const nameInputs = group.locator('input[type="text"]:visible');
+            if (await nameInputs.count() === 1) resolvedInput = nameInputs;
+        }
+    }
+    if (!resolvedInput) {
+        // After Add as an artist, Artist name becomes read-only text. The
+        // first textbox below it is SoundCloud Artist ID, NOT the name.
+        // Never use spatial proximity to fill optional external profile IDs.
+        const externalProfiles = dialog.getByText(/^(?:Artist profile pages|SoundCloud|Spotify|Apple Music|Artist ID|User handle|Profile page link)$/i)
+            .filter({ visible: true });
+        const simpleInputs = dialog.locator('input[type="text"]:visible');
+        if (!(await externalProfiles.count()) && await simpleInputs.count() === 1) resolvedInput = simpleInputs;
+    }
+    if (!resolvedInput) return;
 
     const current = await resolvedInput.inputValue().catch(() => "");
     if (!sameEntityName(current, value)) {
@@ -2461,19 +2500,18 @@ async function waitForEntitySave(
     timeout: number,
 ): Promise<boolean> {
     const deadline = Date.now() + timeout;
+    let confirmedAt: number | undefined;
     while (Date.now() < deadline) {
         const hidden = !await dialog.isVisible().catch(() => false);
         const persisted = await waitForEntityCard(page, label, value, 150);
-        if (hidden && persisted) return true;
-        if (persisted) {
-            // The card is already committed, but an old transition can leave
-            // the modal visible. Close only that stale shell before continuing.
-            const close = dialog.locator('.so-form-modal-title-close:visible, .semi-modal-close:visible, [aria-label="Close"]:visible').last();
-            if (await close.count()) await close.click({ force: true }).catch(() => undefined);
-            else await page.keyboard.press("Escape").catch(() => undefined);
-            await dialog.waitFor({ state: "hidden", timeout: 2_000 }).catch(() => undefined);
-            return true;
+        if (hidden && persisted) {
+            confirmedAt ??= Date.now();
+            if (Date.now() - confirmedAt >= 300) return true;
+        } else {
+            confirmedAt = undefined;
         }
+        // An artist preview inside an open editor is not a committed credit.
+        // Never close/cancel that editor while SoundOn is saving it.
         await page.waitForTimeout(150);
     }
     return false;
@@ -2495,12 +2533,6 @@ export async function waitForEntityCard(
     value: string,
     timeout: number,
 ): Promise<boolean> {
-    const normalize = (text: string) => text
-        .normalize("NFC")
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLocaleLowerCase();
-    const normalized = normalize(value);
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
         let fieldLabel = page
@@ -2512,53 +2544,35 @@ export async function waitForEntityCard(
             fieldLabel = page.getByText(label, { exact: true }).filter({ visible: true }).first();
         }
         if (await fieldLabel.count()) {
-            let container = fieldLabel.locator("..");
-            for (let depth = 0; depth < 5; depth++) {
-                const persisted = await container.locator('*').evaluateAll((elements, expected) => {
-                    const normalizeText = (text: string) => text
-                        .normalize("NFC")
-                        .replace(/\s+/g, " ")
-                        .trim()
-                        .toLocaleLowerCase();
-                    return elements.some(element => {
-                        if (element.closest('dialog, [role="dialog"], .semi-portal')) return false;
-                        if (!(element as HTMLElement).offsetHeight) return false;
-                        return normalizeText(element.textContent ?? "") === String(expected);
+            const persisted = await fieldLabel.evaluate((labelElement, expected) => {
+                const normalize = (text: string) => text.normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+                const visible = (element: Element) => element.getClientRects().length > 0
+                    && getComputedStyle(element).visibility !== "hidden";
+                const editor = 'dialog,[role="dialog"],.so-form-modal-dialog,.semi-modal-content,.semi-portal,[data-automation-editor]';
+                const owner = labelElement.closest(editor);
+                if (labelElement.closest('[data-automation-editor]')) return false;
+                let container = labelElement.parentElement;
+                for (let depth = 0; container && depth < 12; depth++, container = container.parentElement) {
+                    if (container === document.body || container === document.documentElement) break;
+                    // Do not climb into a shared wrapper containing adjacent
+                    // fields/tracks. The same person may appear in many credits.
+                    const otherLabels = Array.from(container.querySelectorAll('.soundon-formik-field-label'))
+                        .filter(element => element !== labelElement && visible(element)
+                            && element.closest(editor) === owner);
+                    if (otherLabels.length) break;
+                    const saved = Array.from(container.querySelectorAll('*')).some(element => {
+                        if (element.contains(labelElement) || labelElement.contains(element)) return false;
+                        if (!visible(element) || element.closest(editor) !== owner) return false;
+                        return normalize(element.textContent ?? "") === normalize(expected);
                     });
-                }, normalized);
-                if (persisted) return true;
-                const add = container.getByText("Add", { exact: true }).filter({ visible: true });
-                if ((await add.count()) && depth > 0) break;
-                container = container.locator("..");
-            }
-            // SoundOn renders selected artists as preview cards. In some
-            // builds those cards sit deeper than the old five-level wrapper
-            // walk; verify the exact name under the requested field label.
-            if (label === "Primary artists") {
-                const artistCards = page.locator(".so-artist-preview-item-artist-name:visible");
-                const selectedInField = await artistCards.evaluateAll((elements, expected) => {
-                    const normalizeText = (text: string) => text
-                        .normalize("NFC")
-                        .replace(/\s+/g, " ")
-                        .trim()
-                        .toLocaleLowerCase();
-                    return elements.some((element) => {
-                        if (normalizeText(element.textContent ?? "") !== normalizeText(String(expected.name))) return false;
-                        let ancestor: Element | null = element.parentElement;
-                        for (let depth = 0; ancestor && depth < 12; depth++, ancestor = ancestor.parentElement) {
-                            if (ancestor.closest("dialog,[role='dialog'],.semi-portal")) return false;
-                            const labels = Array.from(ancestor.querySelectorAll(".soundon-formik-field-label"));
-                            if (labels.some((fieldLabel) => normalizeText(fieldLabel.textContent ?? "") === normalizeText(String(expected.label)))) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    });
-                }, { name: value, label });
-                if (selectedInField) return true;
-            }
+                    if (saved) return true;
+                }
+                return false;
+            }, value);
+            if (persisted) return true;
         }
-        await page.waitForTimeout(400);
+        const remaining = deadline - Date.now();
+        if (remaining > 0) await page.waitForTimeout(Math.min(200, remaining));
     }
     return false;
 }
@@ -2585,7 +2599,7 @@ async function closeResidualEntityDialogs(page: Page): Promise<void> {
     // an album repeat 30-second waits until the global watchdog fired.
     for (let attempt = 0; attempt < 4; attempt++) {
         const dialog = page
-            .locator('dialog:visible,[role="dialog"]:visible')
+            .locator('dialog:visible,[role="dialog"]:visible,.so-form-modal-dialog:visible')
             .filter({
                 has: page.locator("h4:visible").filter({ hasText: /^Add\s+/i }),
             })
@@ -2618,7 +2632,7 @@ async function closeResidualEntityDialogs(page: Page): Promise<void> {
     }
 
     const remaining = page
-        .locator('dialog:visible,[role="dialog"]:visible')
+        .locator('dialog:visible,[role="dialog"]:visible,.so-form-modal-dialog:visible')
         .filter({ has: page.locator("h4:visible").filter({ hasText: /^Add\s+/i }) });
     if (await remaining.count()) {
         const title = (await remaining.last().innerText().catch(() => "Add entity"))

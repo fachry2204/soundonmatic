@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chromium } from "playwright";
-import { assertNoValidationErrors, advanceWizardStep, setScopedTime, setSearchField, selectAlbumTrack, waitForUpload, waitForEntityCard, skipBlockedEntity, assertNoSkippedFields, selectCreateArtistProfile } from "./draft-driver.js";
+import { assertNoValidationErrors, advanceWizardStep, setScopedTime, setSearchField, setTextField, selectAlbumTrack, waitForUpload, waitForEntityCard, skipBlockedEntity, assertNoSkippedFields, selectCreateArtistProfile } from "./draft-driver.js";
 
 describe("SoundOn validation", () => {
     it("closes a blocked editor, allows the next field, but does not report complete metadata", async () => {
@@ -11,7 +11,7 @@ describe("SoundOn validation", () => {
             await skipBlockedEntity(page, 'Contributors', 'Test artist');
             await page.getByLabel('Next field').fill('continued');
             expect(await page.getByLabel('Next field').inputValue()).toBe('continued');
-            expect(() => assertNoSkippedFields(page)).toThrow('SOUNDON_REQUIRED_FIELD_UNRESOLVED:SoundOn menonaktifkan penyimpanan draft');
+            expect(() => assertNoSkippedFields(page)).toThrow('SOUNDON_REQUIRED_FIELD_UNRESOLVED:');
             expect(() => assertNoSkippedFields(page)).toThrow('Contributors: Test artist');
         } finally { await browser.close(); }
     }, 10000);
@@ -45,6 +45,78 @@ describe("SoundOn validation", () => {
             expect(await waitForEntityCard(page, "Primary artists", "Café", 100)).toBe(true);
         } finally { await browser.close(); }
     }, 10000);
+    it("does not mistake an unsaved custom-modal preview or another field for a saved primary artist", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><div class="soundon-formik-field-label">Primary artists</div><button>Add</button></section>
+                <div class="so-form-modal-dialog"><h4>Add primary artist</h4><div class="so-artist-preview-item-artist-name">Zenal Farell</div></div>`);
+            expect(await waitForEntityCard(page, 'Primary artists', 'Zenal Farell', 50)).toBe(false);
+            await page.setContent(`<section><div class="soundon-formik-field-label">Primary artists</div><button>Add</button></section>
+                <section><div class="soundon-formik-field-label">Featured artists</div><div class="so-artist-preview-item-artist-name">Zenal Farell</div></section>`);
+            expect(await waitForEntityCard(page, 'Primary artists', 'Zenal Farell', 50)).toBe(false);
+        } finally { await browser.close(); }
+    }, 15000);
+    it("verifies each credit within its field, including deep card wrappers and an outer track dialog", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            for (const label of ['Primary artists', 'Featured artists', 'Songwriters', 'Lyricists', 'Contributors', 'Production and additional contributors']) {
+                await page.setContent(`<dialog open><section><div><div><span class="soundon-formik-field-label">${label}</span><button>Add</button></div></div>
+                    <div><div><div><span id="committed"></span></div></div></div></section>
+                    <section><span class="soundon-formik-field-label">Record label</span><span>Zenal Farell</span></section></dialog>`);
+                expect(await waitForEntityCard(page, label, 'Zenal Farell', 50)).toBe(false);
+                await page.locator('#committed').evaluate(element => element.textContent = 'Zenal Farell');
+                expect(await waitForEntityCard(page, label, 'Zenal Farell', 50)).toBe(true);
+            }
+        } finally { await browser.close(); }
+    }, 15000);
+    it("waits for SoundOn to commit an artist instead of closing its custom editor during Submit", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<main><section><span class="soundon-formik-field-label">Primary artists</span><span id="saved"></span>
+                <button onclick="document.querySelector('.so-form-modal-dialog').hidden=false">Add</button></section></main>
+                <div class="so-form-modal-dialog" hidden><h4>Add primary artist</h4><label>Artist name</label><input type="text" value="Zenal Farell">
+                <div class="semi-select-option-list-outer-bottom-slot" onclick="document.querySelector('#preview').hidden=false;this.hidden=true">Add "Zenal Farell" as an artist</div>
+                <div id="preview" hidden><span class="so-artist-preview-item-artist-name">Zenal Farell</span></div>
+                <button onclick="this.disabled=true;window.saveTimer=setTimeout(()=>{document.querySelector('#saved').textContent='Zenal Farell';this.parentElement.hidden=true},900)">Submit</button>
+                <button class="so-form-modal-title-close" onclick="window.cancelled=true;clearTimeout(window.saveTimer);this.parentElement.hidden=true">Cancel</button></div>`);
+            await setSearchField(page, 'Primary artists', 'Zenal Farell');
+            expect(await page.locator('#saved').innerText()).toBe('Zenal Farell');
+            expect(await page.evaluate(() => (window as any).cancelled)).toBeUndefined();
+        } finally { await browser.close(); }
+    }, 20000);
+    it("selects Add as an artist from a visible dropdown inside a zero-size portal", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><span class="soundon-formik-field-label">Primary artists</span><span id="saved"></span><button onclick="document.querySelector('.so-form-modal-dialog').hidden=false">Add</button></section>
+                <div class="so-form-modal-dialog" hidden><h4>Add primary artist</h4><label>Artist name</label><div class="semi-select-content-wrapper"><input type="text" oninput="document.querySelector('#new-artist').hidden=false"></div>
+                <button disabled id="submit" onclick="document.querySelector('#saved').textContent='Zenal Farell';this.parentElement.hidden=true">Submit</button></div>
+                <div class="semi-portal" style="display:contents"><div id="new-artist" hidden onclick="document.querySelector('#submit').disabled=false;this.hidden=true">Add "Zenal Farell" as an artist</div></div>`);
+            expect(await page.locator('.semi-portal').isVisible()).toBe(false);
+            await setSearchField(page, 'Primary artists', 'Zenal Farell');
+            expect(await page.locator('#saved').innerText()).toBe('Zenal Farell');
+        } finally { await browser.close(); }
+    }, 30000);
+    it("preserves blank external profile IDs when Artist name becomes static text after Add", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><span class="soundon-formik-field-label">Primary artists</span><span id="saved"></span><button onclick="document.querySelector('dialog').showModal()">Add</button></section>
+                <dialog class="so-form-modal-dialog"><h4>Add primary artist</h4><div class="semi-select-content-wrapper"><input id="search-name" type="text"></div>
+                <div id="create-name" onclick="document.querySelector('#search-name').parentElement.remove();this.parentElement.append(document.querySelector('template').content.cloneNode(true));this.remove()">Add "Zenal Farell" as an artist</div></dialog>
+                <template><div data-so-field-id="artistName"><span>Artist name</span><span>Zenal Farell</span></div><h5>Artist profile pages</h5>
+                <label class="semi-radio"><input type="radio" name="spotify" onchange="document.querySelector('#save-credit').disabled=document.querySelectorAll('input:checked').length!==2">Create and link to a new artist ID</label>
+                <label class="semi-radio"><input type="radio" name="apple" onchange="document.querySelector('#save-credit').disabled=document.querySelectorAll('input:checked').length!==2">Create and link to a new artist ID</label>
+                <label>SoundCloud</label><label>Artist ID</label><input id="soundcloud" type="text">
+                <button id="save-credit" disabled onclick="if(!document.querySelector('#soundcloud').value){document.querySelector('#saved').textContent='Zenal Farell';this.closest('dialog').close()}">Submit</button></template>`);
+            await setSearchField(page, 'Primary artists', 'Zenal Farell');
+            expect(await page.locator('#soundcloud').inputValue()).toBe('');
+            expect(await page.locator('#saved').innerText()).toBe('Zenal Farell');
+        } finally { await browser.close(); }
+    }, 20000);
     it("waits for queued audio even without an upload percentage", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
@@ -71,6 +143,44 @@ describe("SoundOn validation", () => {
             expect(await page.locator('div').innerText()).toBe('Upload complete');
         } finally { await browser.close(); }
     }, 10000);
+    it("retries text reset on blur and reports a field that SoundOn still rejects", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><label class="soundon-formik-field-label">Title</label><input onblur="window.blurs=(window.blurs||0)+1;if(window.blurs===1)this.value=''" /></section>`);
+            await setTextField(page, 'Title', 'Tanpa Kamu');
+            expect(await page.locator('input').inputValue()).toBe('Tanpa Kamu');
+            await page.setContent(`<section><label class="soundon-formik-field-label">Record label</label><input onblur="this.value=''" /></section>`);
+            await expect(setTextField(page, 'Record label', 'Soundfresh.ID')).rejects.toThrow('SOUNDON_FIELD_NOT_PERSISTED:Record label:expected=Soundfresh.ID:actual=');
+        } finally { await browser.close(); }
+    }, 15000);
+    it("does not reopen Add for an exact songwriter credit already saved on the form", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><span class="soundon-formik-field-label">Songwriters</span><span>Zenal Farell</span><button onclick="window.opened=true">Add</button></section>`);
+            await setSearchField(page, 'Songwriters', 'Zenal Farell');
+            expect(await page.evaluate(() => (window as any).opened)).toBeUndefined();
+        } finally { await browser.close(); }
+    }, 10000);
+    it("selects the contributor role in a custom modal and verifies the requested credit field", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><span class="soundon-formik-field-label">Production and additional contributors</span><div id="saved"></div><button onclick="document.querySelector('.so-form-modal-dialog').hidden=false">Add</button></section>
+                <section><span class="soundon-formik-field-label">Primary artists</span><span>Sadadi Nusantara</span></section>
+                <div class="so-form-modal-dialog" hidden><h4>Add contributor</h4>
+                <div class="semi-select" onclick="document.querySelector('#roles').hidden=false"><div class="semi-select-content-wrapper">Choose role</div></div>
+                <div class="semi-select" onclick="this.classList.add('semi-select-open');document.querySelector('#credit-name').hidden=false;document.querySelector('#add-credit').hidden=false"><label>Name</label><div class="semi-select-content-wrapper">Choose artist</div><input id="credit-name" type="text" hidden></div>
+                <div id="add-credit" hidden onclick="document.querySelector('#submit-credit').disabled=window.role!=='Producer';this.hidden=true">Add "Sadadi Nusantara" as an artist</div>
+                <button id="submit-credit" disabled onclick="document.querySelector('#saved').innerHTML='<span>Sadadi Nusantara</span><span>Producer</span>';this.parentElement.hidden=true">Submit</button></div>
+                <div id="roles" class="semi-portal" hidden><div class="semi-select-option" onclick="window.role='Producer';this.parentElement.hidden=true"><span class="semi-select-option-text">Producer</span></div></div>`);
+            await setSearchField(page, 'Production and additional contributors', 'Sadadi Nusantara', false, 0, 'Producer');
+            expect(await page.evaluate(() => (window as any).role)).toBe('Producer');
+            expect(await page.locator('#saved').innerText()).toContain('Sadadi Nusantara');
+            expect(await waitForEntityCard(page, 'Production and additional contributors', 'Sadadi Nusantara', 50)).toBe(true);
+        } finally { await browser.close(); }
+    }, 20000);
     it("returns SoundOn audio processing error verbatim", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

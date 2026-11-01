@@ -7,6 +7,17 @@ final class ReadableReleaseError
     public static function explain(?string $code, ?string $message): array
     {
         $message = (string) $message;
+        if ($code === 'SOUNDON_CONTRIBUTOR_NOT_PERSISTED'
+            && preg_match('/SOUNDON_CONTRIBUTOR_NOT_PERSISTED:([^:]+):(.+?)(?=:stage=|:role=|[\r\n]|$)/u', $message, $match)) {
+            $field = ['Primary artists' => 'Artis utama', 'Featured artists' => 'Artis pendukung', 'Songwriters' => 'Penulis lagu',
+                'Lyricists' => 'Penulis lirik', 'Contributors' => 'Kontributor', 'Production and additional contributors' => 'Kontributor produksi'][$match[1]] ?? $match[1];
+
+            return [
+                'title' => 'Kredit SoundOn belum tersimpan',
+                'reason' => 'Sumber: SoundOn. Nama “'.trim($match[2]).'” pada field “'.$field.'” belum terkonfirmasi tersimpan pada rilisan setelah Submit.',
+                'action' => 'Profil yang terlihat di jendela pencarian belum berarti kredit sudah tersimpan. Draft dan status Soundfresh hanya dinyatakan berhasil setelah hasil penyimpanan terverifikasi. Detail teknis menunjukkan tahap dan respons form.',
+            ];
+        }
         if (preg_match('/SOUNDON_UI_CHANGED:(?:blocking_dialog|stale_dialog):([^\r\n]+)/', $message, $match)) {
             $field = trim($match[1]);
             $field = ['Primary artists' => 'artis utama', 'Songwriters' => 'penulis lagu', 'Production and additional contributors' => 'kontributor produksi'][$field] ?? $field;

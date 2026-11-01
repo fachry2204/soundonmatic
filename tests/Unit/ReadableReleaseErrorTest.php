@@ -5,6 +5,19 @@ use PHPUnit\Framework\TestCase;
 
 class ReadableReleaseErrorTest extends TestCase
 {
+    public function test_credit_persistence_error_identifies_the_field_and_name_without_claiming_the_profile_is_missing(): void
+    {
+        $result = ReadableReleaseError::explain(
+            'SOUNDON_CONTRIBUTOR_NOT_PERSISTED',
+            'Detail teknis: SOUNDON_CONTRIBUTOR_NOT_PERSISTED:Primary artists:Zenal Farell:stage=verify_after_submit:role=none',
+        );
+        $this->assertSame('Kredit SoundOn belum tersimpan', $result['title']);
+        $this->assertStringContainsString('SoundOn', $result['reason']);
+        $this->assertStringContainsString('Zenal Farell', $result['reason']);
+        $this->assertStringContainsString('Artis utama', $result['reason']);
+        $this->assertStringNotContainsString('stage=', $result['reason']);
+        $this->assertStringContainsString('Soundfresh', $result['action']);
+    }
     public function test_old_saved_dialog_errors_are_explained_without_claiming_upload_failed(): void
     {
         $result = ReadableReleaseError::explain('UI_CHANGED', 'Pesan lama. Detail teknis: SOUNDON_UI_CHANGED:blocking_dialog:Primary artists');
