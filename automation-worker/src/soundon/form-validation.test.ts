@@ -25,6 +25,14 @@ describe("SoundOn validation", () => {
             expect(await waitForEntityCard(page, 'Primary artists', 'Hus', 50)).toBe(false);
         } finally { await browser.close(); }
     }, 10000);
+    it("verifies a saved primary-artist card when SoundOn uses decomposed Unicode", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><div class="soundon-formik-field-label">Primary artists</div><div class="artist-wrapper"><div class="so-artist-preview-item"><span class="so-artist-preview-item-artist-name">Cafe\u0301</span></div></div></section>`);
+            expect(await waitForEntityCard(page, "Primary artists", "Café", 100)).toBe(true);
+        } finally { await browser.close(); }
+    }, 10000);
     it("waits for queued audio even without an upload percentage", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

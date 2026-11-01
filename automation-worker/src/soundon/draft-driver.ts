@@ -2472,7 +2472,12 @@ export async function waitForEntityCard(
     value: string,
     timeout: number,
 ): Promise<boolean> {
-    const normalized = value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+    const normalize = (text: string) => text
+        .normalize("NFC")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLocaleLowerCase();
+    const normalized = normalize(value);
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
         let fieldLabel = page
@@ -2486,15 +2491,48 @@ export async function waitForEntityCard(
         if (await fieldLabel.count()) {
             let container = fieldLabel.locator("..");
             for (let depth = 0; depth < 5; depth++) {
-                const persisted = await container.locator('*').evaluateAll((elements, expected) => elements.some(element => {
-                    if (element.closest('dialog, [role="dialog"], .semi-portal')) return false;
-                    if (!(element as HTMLElement).offsetHeight) return false;
-                    return element.textContent?.replace(/\s+/g, ' ').trim().toLocaleLowerCase() === expected;
-                }), normalized);
+                const persisted = await container.locator('*').evaluateAll((elements, expected) => {
+                    const normalizeText = (text: string) => text
+                        .normalize("NFC")
+                        .replace(/\s+/g, " ")
+                        .trim()
+                        .toLocaleLowerCase();
+                    return elements.some(element => {
+                        if (element.closest('dialog, [role="dialog"], .semi-portal')) return false;
+                        if (!(element as HTMLElement).offsetHeight) return false;
+                        return normalizeText(element.textContent ?? "") === String(expected);
+                    });
+                }, normalized);
                 if (persisted) return true;
                 const add = container.getByText("Add", { exact: true }).filter({ visible: true });
                 if ((await add.count()) && depth > 0) break;
                 container = container.locator("..");
+            }
+            // SoundOn renders selected artists as preview cards. In some
+            // builds those cards sit deeper than the old five-level wrapper
+            // walk; verify the exact name under the requested field label.
+            if (label === "Primary artists") {
+                const artistCards = page.locator(".so-artist-preview-item-artist-name:visible");
+                const selectedInField = await artistCards.evaluateAll((elements, expected) => {
+                    const normalizeText = (text: string) => text
+                        .normalize("NFC")
+                        .replace(/\s+/g, " ")
+                        .trim()
+                        .toLocaleLowerCase();
+                    return elements.some((element) => {
+                        if (normalizeText(element.textContent ?? "") !== normalizeText(String(expected.name))) return false;
+                        let ancestor: Element | null = element.parentElement;
+                        for (let depth = 0; ancestor && depth < 12; depth++, ancestor = ancestor.parentElement) {
+                            if (ancestor.closest("dialog,[role='dialog'],.semi-portal")) return false;
+                            const labels = Array.from(ancestor.querySelectorAll(".soundon-formik-field-label"));
+                            if (labels.some((fieldLabel) => normalizeText(fieldLabel.textContent ?? "") === normalizeText(String(expected.label)))) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                }, { name: value, label });
+                if (selectedInField) return true;
             }
         }
         await page.waitForTimeout(400);
