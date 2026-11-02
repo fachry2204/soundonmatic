@@ -12,10 +12,27 @@ final class ReadableReleaseError
             $field = ['Primary artists' => 'Artis utama', 'Featured artists' => 'Artis pendukung', 'Songwriters' => 'Penulis lagu',
                 'Lyricists' => 'Penulis lirik', 'Contributors' => 'Kontributor', 'Production and additional contributors' => 'Kontributor produksi'][$match[1]] ?? $match[1];
 
+            if (str_contains(strtolower($message), 'artist name cannot contain urls or website links')) {
+                return [
+                    'title' => 'Nama artis ditolak validasi SoundOn',
+                    'reason' => 'Sumber: form SoundOn. Nama “'.trim($match[2]).'” pada field “'.$field.'” ditolak dengan pesan: Artist name cannot contain URLs or website links.',
+                    'action' => 'Nama tetap dipertahankan sesuai Soundfresh; sistem tidak menghapus tanda titik atau mengganti identitas artis. Coba pilih profil artis yang sudah ada dengan nama yang sama di SoundOn. Jika nama yang sah tetap ditolak, minta bantuan SoundOn. Draft belum terverifikasi, sehingga status Soundfresh belum diubah.',
+                ];
+            }
+
             return [
                 'title' => 'Kredit SoundOn belum tersimpan',
                 'reason' => 'Sumber: SoundOn. Nama “'.trim($match[2]).'” pada field “'.$field.'” belum terkonfirmasi tersimpan pada rilisan setelah Submit.',
                 'action' => 'Profil yang terlihat di jendela pencarian belum berarti kredit sudah tersimpan. Draft dan status Soundfresh hanya dinyatakan berhasil setelah hasil penyimpanan terverifikasi. Detail teknis menunjukkan tahap dan respons form.',
+            ];
+        }
+        if ($code === 'SOUNDON_MONETIZATION_NOT_ENABLED'
+            || preg_match('/SOUNDON_MONETIZATION_NOT_ENABLED:([^\r\n]+)/', $message)) {
+            preg_match('/SOUNDON_MONETIZATION_NOT_ENABLED:([^\r\n]+)/', $message, $option);
+            return [
+                'title' => 'Pengaturan monetisasi SoundOn belum tersimpan',
+                'reason' => 'Sumber: form SoundOn. Opsi “'.trim($option[1] ?? 'Monetisasi').'” belum terkonfirmasi aktif setelah dipilih.',
+                'action' => 'Periksa kelayakan genre dan keterangan pada opsi SoundOn. Opsi yang dinonaktifkan SoundOn dilewati dengan peringatan; opsi aktif yang gagal tersimpan memerlukan pemeriksaan. Ini bukan bukti file audio rusak.',
             ];
         }
         if (preg_match('/SOUNDON_UI_CHANGED:(?:blocking_dialog|stale_dialog):([^\r\n]+)/', $message, $match)) {

@@ -5,6 +5,23 @@ use PHPUnit\Framework\TestCase;
 
 class ReadableReleaseErrorTest extends TestCase
 {
+    public function test_soundon_name_validation_is_not_reported_as_missing_profile(): void
+    {
+        $result = ReadableReleaseError::explain('SOUNDON_CONTRIBUTOR_NOT_PERSISTED',
+            'SOUNDON_CONTRIBUTOR_NOT_PERSISTED:Primary artists:M.Vaganzaee:stage=submit_verification:errors=Artist name cannot contain URLs or website links.');
+        $this->assertSame('Nama artis ditolak validasi SoundOn', $result['title']);
+        $this->assertStringContainsString('M.Vaganzaee', $result['reason']);
+        $this->assertStringContainsString('tanda titik', $result['action']);
+        $this->assertStringContainsString('status Soundfresh belum diubah', $result['action']);
+    }
+
+    public function test_monetization_failure_has_specific_explanation_even_for_old_ui_changed_code(): void
+    {
+        $result = ReadableReleaseError::explain('UI_CHANGED', 'Detail teknis: SOUNDON_MONETIZATION_NOT_ENABLED:YouTube Content ID');
+        $this->assertSame('Pengaturan monetisasi SoundOn belum tersimpan', $result['title']);
+        $this->assertStringContainsString('YouTube Content ID', $result['reason']);
+        $this->assertStringContainsString('kelayakan genre', $result['action']);
+    }
     public function test_credit_persistence_error_identifies_the_field_and_name_without_claiming_the_profile_is_missing(): void
     {
         $result = ReadableReleaseError::explain(

@@ -209,7 +209,7 @@ final class ProcessReleaseJob implements ShouldQueue
                             $this->event(
                                 $job,
                                 'soundon_optional_metadata_skipped',
-                                'Draft tetap tersimpan. SoundOn tidak menerima field opsional berikut: '.implode('; ', array_map('strval', $draft['warnings'])).'. Periksa detail rilisan jika nilai tersebut diperlukan.',
+                                'Draft tetap tersimpan dengan peringatan field atau opsi SoundOn: '.implode('; ', array_map('strval', $draft['warnings'])).'. Periksa detail rilisan jika nilai tersebut diperlukan.',
                             );
                         }
                         if ($alreadyExists) {
@@ -469,6 +469,7 @@ final class ProcessReleaseJob implements ShouldQueue
             'SOUNDON_REQUIRED_FIELD_UNRESOLVED' => 'Sumber: pengisian form SoundOn. Field wajib yang disebutkan di detail belum terkonfirmasi tersimpan, sehingga sistem belum melanjutkan penyimpanan draft. Status Soundfresh tetap Pending. Detail menyebut field dan nilai yang belum terverifikasi.',
             'SOUNDON_ARTIST_CREATE_FAILED' => 'Sumber: SoundOn. Opsi Add as an artist sudah dipilih, tetapi pemilihan profil artis baru atau tombol Submit tidak berhasil dikonfirmasi. Draft belum tersimpan dan status Soundfresh tetap Pending. Periksa dialog pembuatan artis di SoundOn lalu tekan Retry. Detail teknis menunjukkan field dan nama artis.',
             'SOUNDON_CONTRIBUTOR_NOT_PERSISTED' => 'Sumber: SoundOn. Sistem belum dapat mengonfirmasi kredit artis/penulis/kontributor tersimpan setelah Submit. Ini belum membuktikan nama atau profil salah. Detail teknis menyebut field, nama, tahap, dan respons form yang perlu diperiksa.',
+            'SOUNDON_MONETIZATION_NOT_ENABLED' => 'Sumber: form SoundOn. Pengaturan monetisasi belum terkonfirmasi aktif. Periksa keterangan kelayakan opsi SoundOn. Opsi yang dinonaktifkan platform dilewati dengan peringatan, bukan dipaksa aktif.',
             'SOUNDON_FORM_VALIDATION' => 'SoundOn menolak metadata pada form. Periksa detail field yang bermasalah sebelum Retry; proses tidak melanjutkan dengan data yang tidak lengkap.',
             'SOUNDON_FIELD_NOT_PERSISTED' => 'Nilai field sudah diisi tetapi tidak disimpan oleh form SoundOn. Detail menunjukkan field terkait; refresh sesi SoundOn lalu tekan Retry.',
             'PRE_RELEASE_INVALID' => 'Pilihan atau tanggal pre-release tidak berhasil disimpan. Periksa tanggal pre-release lebih awal dari tanggal rilis dan gunakan waktu 12:00 AM, lalu tekan Retry.',

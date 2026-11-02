@@ -1050,6 +1050,35 @@ export async function setPublisherField(page, value = "Soundfresh.ID", optional 
     if (!(await persisted.first().isVisible().catch(() => false)))
         throw new Error(`SOUNDON_PUBLISHER_NOT_PERSISTED:${value}`);
 }
+export async function enableMonetizationOption(page, toggle, option) {
+    // An ineligible store is optional, not a broken wizard. Never bypass its
+    // disabled control or change the source genre to make it eligible.
+    if (await toggle.isChecked())
+        return true;
+    const disabled = async () => await toggle.isDisabled()
+        || await toggle.getAttribute("aria-disabled") === "true";
+    for (let attempt = 0; attempt < 3; attempt++) {
+        if (await disabled()) {
+            await toggle.hover({ force: true, timeout: 1500 }).catch(() => undefined);
+            const reason = await toggle.evaluate((element) => {
+                const ids = `${element.getAttribute('aria-describedby') ?? ''} ${element.getAttribute('aria-errormessage') ?? ''}`.trim().split(/\s+/);
+                return ids.map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()
+                    || element.getAttribute('title') || element.parentElement?.getAttribute('title') || '';
+            });
+            const tooltip = await page.getByRole('tooltip').filter({ visible: true }).allTextContents();
+            const detail = (reason || tooltip.join(' ') || 'SoundOn menonaktifkan opsi ini untuk rilisan ini.').replace(/\s+/g, ' ').trim();
+            const warning = `${option}: tidak diaktifkan oleh SoundOn. ${detail}`;
+            optionalFieldWarnings.set(page, [...(optionalFieldWarnings.get(page) ?? []), warning]);
+            console.warn(JSON.stringify({ event: 'monetization_option_unavailable', option, source: 'SoundOn', reason: detail }));
+            return false;
+        }
+        await toggle.click({ timeout: 3000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+        if (await toggle.isChecked())
+            return true;
+    }
+    throw new Error(`SOUNDON_MONETIZATION_NOT_ENABLED:${option}`);
+}
 export async function enableStandardMonetization(page, preReleaseDate = "", optionalStep = false) {
     const normalizedText = (text) => text.normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
     const findVisibleText = async (label) => {
@@ -1100,6 +1129,7 @@ export async function enableStandardMonetization(page, preReleaseDate = "", opti
         })).catch(() => ({ url: "unknown", headings: [], buttons: [] }));
         throw new Error(`SOUNDON_UI_CHANGED:step:Monetization options:state=${JSON.stringify(pageState)}`);
     }
+    let youtubeEnabled = true;
     for (const option of [
         "Commercial Music Licensing",
         "CapCut",
@@ -1123,16 +1153,17 @@ export async function enableStandardMonetization(page, preReleaseDate = "", opti
         }
         if (!toggle)
             throw new Error(`SOUNDON_UI_CHANGED:monetization_switch:${option}`);
-        for (let attempt = 0; attempt < 3 && !(await toggle.isChecked()); attempt++) {
-            await toggle.click({ force: true }).catch(() => undefined);
-            await page.waitForTimeout(500);
-            if (await toggle.isChecked())
-                break;
-            await toggle.evaluate((element) => element.click()).catch(() => undefined);
-            await page.waitForTimeout(500);
-        }
-        if (!(await toggle.isChecked()))
-            throw new Error(`SOUNDON_MONETIZATION_NOT_ENABLED:${option}`);
+        const enabled = await enableMonetizationOption(page, toggle, option);
+        if (option === "YouTube Content ID")
+            youtubeEnabled = enabled;
+    }
+    // SoundOn also disables the dependent Shorts pre-release for an ineligible
+    // Content ID store. Do not try to force its checkbox or dates on.
+    if (!youtubeEnabled) {
+        if (preReleaseDate)
+            optionalFieldWarnings.set(page, [...(optionalFieldWarnings.get(page) ?? []),
+                'Pre-release on YouTube Shorts: tidak diisi karena YouTube Content ID tidak tersedia pada rilisan ini.']);
+        return;
     }
     const preReleases = page
         .getByText(/Pre-release on YouTube Shorts/)
@@ -2055,6 +2086,12 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             }
                             if (!contributorRole && await waitForEntityCard(page, label, value, entityPersistTimeout))
                                 return;
+                            // A server/form rejection of the exact artist name is
+                            // not a transient save delay. Retrying Add creates no
+                            // valid credit; never silently strip punctuation.
+                            if (validationErrors.some(error => /artist name cannot contain urls or website links/i.test(error))) {
+                                throw new Error(`SOUNDON_CONTRIBUTOR_NOT_PERSISTED:${label}:${value}:stage=submit_verification:errors=${validationErrors.join('; ')}`);
+                            }
                             if (!optional && entityRetry < entityMaxRetries) {
                                 await page.waitForTimeout(1_000);
                                 return setSearchField(page, label, value, optional, entityRetry + 1, contributorRole);

@@ -1,6 +1,6 @@
 param(
-    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.78.exe'),
-    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.78'),
+    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.79.exe'),
+    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.79'),
     [string]$WorkerDistDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation-worker\dist')
 )
 $ErrorActionPreference = 'Stop'

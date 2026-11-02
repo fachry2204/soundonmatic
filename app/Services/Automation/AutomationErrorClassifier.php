@@ -34,6 +34,9 @@ final class AutomationErrorClassifier
             return ['code' => 'NETWORK_TIMEOUT', 'disposition' => 'retry'];
         }
         $message = strtoupper($error->getMessage());
+        if (str_contains($message, 'SOUNDON_MONETIZATION_NOT_ENABLED')) {
+            return ['code' => 'SOUNDON_MONETIZATION_NOT_ENABLED', 'disposition' => 'needs_attention'];
+        }
         if (str_contains($message, 'SOUNDON_REQUIRED_FIELD_UNRESOLVED')) {
             return ['code' => 'SOUNDON_REQUIRED_FIELD_UNRESOLVED', 'disposition' => 'needs_attention'];
         }

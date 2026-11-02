@@ -8,6 +8,11 @@ use Tests\TestCase;
 
 class AutomationErrorClassifierTest extends TestCase
 {
+    public function test_monetization_failure_is_not_misclassified_as_changed_ui(): void
+    {
+        $this->assertSame(['code' => 'SOUNDON_MONETIZATION_NOT_ENABLED', 'disposition' => 'needs_attention'],
+            (new AutomationErrorClassifier)->classify(new \RuntimeException('SOUNDON_MONETIZATION_NOT_ENABLED:YouTube Content ID')));
+    }
     public function test_soundon_form_errors_need_attention_not_blind_retry(): void
     {
         $this->assertSame(
