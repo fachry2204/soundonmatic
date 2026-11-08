@@ -1,46 +1,40 @@
-import { describe, expect, it, vi } from "vitest";
-import { verifySoundfreshRelease } from "./verify-release.js";
+import { describe, expect, it } from 'vitest';
+import { chromium } from 'playwright';
+import { verifySoundfreshRelease } from './verify-release.js';
 
-describe("verifySoundfreshRelease", () => {
-    it("fills UPC and every track ISRC before verifying", async () => {
-        const upc = { count: vi.fn(async () => 1), fill: vi.fn(async () => undefined) };
-        const isrc1 = { count: vi.fn(async () => 1), fill: vi.fn(async () => undefined) };
-        const isrc2 = { count: vi.fn(async () => 1), fill: vi.fn(async () => undefined) };
-        const verify = { count: vi.fn(async () => 1), click: vi.fn(async () => undefined) };
-        const inputs = { filter: vi.fn(() => ({ count: vi.fn(async () => 3), nth: vi.fn((index: number) => [upc, isrc1, isrc2][index]) })) };
-        const dialog = {
-            count: vi.fn(async () => 1), waitFor: vi.fn(async () => undefined), isVisible: vi.fn(async () => false),
-            locator: vi.fn(),
-            getByRole: vi.fn(() => ({ filter: vi.fn(() => ({ last: vi.fn(() => verify) })) })),
-        };
-        const page = {
-            url: vi.fn(() => "https://cms.soundfresh.id/admin/releases/123"),
-            getByRole: vi.fn((role: string) => role === "dialog"
-                ? { filter: vi.fn(() => ({ first: vi.fn(() => dialog) })) }
-                : { filter: vi.fn(() => ({ first: vi.fn(() => verify), last: vi.fn(() => verify) })) }),
-            locator: vi.fn((selector: string) => {
-                if (selector === 'input[name="upc"]') return { last: vi.fn(() => ({ ...upc, count: vi.fn(async () => 1) })) };
-                if (selector === 'input[name^="isrc["]') return { count: vi.fn(async () => 2), nth: vi.fn((index: number) => [isrc1, isrc2][index]) };
-                return inputs;
-            }),
-            getByText: vi.fn((pattern: RegExp) => {
-                const input = pattern.test("UPC") ? upc : pattern.test("Track 1 ISRC") ? isrc1 : isrc2;
-                return { filter: vi.fn(() => ({ first: vi.fn(() => ({
-                    count: vi.fn(async () => 1),
-                    locator: vi.fn(() => ({ filter: vi.fn(() => ({ first: vi.fn(() => ({ ...input, count: vi.fn(async () => 1) })) })) })),
-                })) })) };
-            }),
-            waitForTimeout: vi.fn(async () => undefined),
-        } as any;
+describe('verifySoundfreshRelease', () => {
+    it('selects English then Verify Release for Upload DSP and fills UPC and every track ISRC', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<button id="locale" onclick="document.querySelector('#english').hidden=false">ID</button>
+                <button id="english" hidden onclick="document.querySelector('#locale').textContent='EN';document.querySelector('#verify').textContent='Verify Release';this.hidden=true">English</button>
+                <span class="badge">Upload DSP</span><input aria-label="Search releases" value="unchanged">
+                <input type="hidden" name="upc" value="old"><input type="hidden" name="isrc[0]" value="old">
+                <button onclick="document.body.dataset.wrongAction='yes'">Review Release</button>
+                <button onclick="document.body.dataset.wrongAction='yes'">Reject Release</button>
+                <a href="#" id="verify" onclick="document.querySelector('dialog').showModal();return false">Verifikasi Rilisan</a>
+                <dialog><label>UPC<input name="upc"></label>
+                <label>Track 1 ISRC<input name="isrc[0]"></label><label>Track 2 ISRC<input name="isrc[1]"></label>
+                <button onclick="document.body.dataset.saved='yes';this.closest('dialog').close()">Verify Release</button></dialog>`);
+            await verifySoundfreshRelease(page, { upc: '1234567890123', isrcs: ['IDABC2612345', 'IDABC2612346'] });
+            expect(await page.locator('#locale').innerText()).toBe('EN');
+            expect(await page.locator('dialog input[name="upc"]').inputValue()).toBe('1234567890123');
+            expect(await page.locator('dialog input[name="isrc[0]"]').inputValue()).toBe('IDABC2612345');
+            expect(await page.locator('dialog input[name="isrc[1]"]').inputValue()).toBe('IDABC2612346');
+            expect(await page.getByLabel('Search releases').inputValue()).toBe('unchanged');
+            expect(await page.locator('body').getAttribute('data-wrongAction')).toBeNull();
+            expect(await page.locator('body').getAttribute('data-saved')).toBe('yes');
+        } finally { await browser.close(); }
+    }, 20000);
 
-        await verifySoundfreshRelease(page, {
-            upc: "1234567890123",
-            isrcs: ["IDABC2612345", "IDABC2612346"],
-        });
-
-        expect(upc.fill).toHaveBeenCalledWith("1234567890123");
-        expect(isrc1.fill).toHaveBeenCalledWith("IDABC2612345");
-        expect(isrc2.fill).toHaveBeenCalledWith("IDABC2612346");
-        expect(verify.click).toHaveBeenCalledTimes(2);
-    });
+    it('does not report verification success based on a Published navigation tab', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<button>EN</button><a>Published</a><span class="badge">Upload DSP</span>');
+            await expect(verifySoundfreshRelease(page, { upc: '1234567890123', isrcs: ['IDABC2612345'] }))
+                .rejects.toThrow('verify_release_button');
+        } finally { await browser.close(); }
+    }, 10000);
 });

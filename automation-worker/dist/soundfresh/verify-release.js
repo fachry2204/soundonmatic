@@ -1,3 +1,4 @@
+import { ensureSoundfreshEnglish } from './language.js';
 async function inputFollowingLabel(page, label) {
     const labelNode = page.getByText(label, { exact: false }).filter({ visible: true }).first();
     if (!await labelNode.count())
@@ -6,18 +7,17 @@ async function inputFollowingLabel(page, label) {
     return await input.count() ? input : null;
 }
 export async function verifySoundfreshRelease(page, identifiers) {
-    const verifyButton = page.getByRole("button", { name: /^Verify Release$/i }).filter({ visible: true }).first();
+    await ensureSoundfreshEnglish(page);
+    const verifyButton = page.getByRole("button", { name: /^Verify Release$/i })
+        .or(page.getByRole('link', { name: /^Verify Release$/i })).filter({ visible: true }).first();
     if (!await verifyButton.count()) {
-        const pageText = await page.locator("body").innerText().catch(() => "");
-        if (/verified|approved|published|release\s+verified/i.test(pageText))
-            return;
+        // Sidebar labels such as Published do not prove these identifiers saved.
         const buttons = (await page.getByRole("button").allInnerTexts().catch(() => [])).slice(0, 20);
         throw new Error(`SOUNDFRESH_UI_CHANGED:verify_release_button:buttons=${JSON.stringify(buttons)}:url=${page.url()}`);
     }
     await verifyButton.click({ timeout: 20_000 });
-    let modal = page.getByRole("dialog").filter({ visible: true }).first();
-    if (!await modal.count())
-        modal = page.locator('.modal.show:visible, [class*="modal" i]:visible').first();
+    const modal = page.getByRole("dialog").or(page.locator('.modal.show, .swal2-popup'))
+        .filter({ visible: true }).first();
     await modal.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
     if (!await modal.count())
         throw new Error(`SOUNDFRESH_UI_CHANGED:verify_dialog:url=${page.url()}`);
@@ -25,12 +25,11 @@ export async function verifySoundfreshRelease(page, identifiers) {
     // The current Soundfresh modal exposes visible text labels without a
     // for/id association, and its fields may be portalled outside the dialog
     // node. Resolve the first input following each visible label.
-    const namedUpc = page.locator('input[name="upc"]').last();
-    const namedIsrcs = page.locator('input[name^="isrc["]');
-    const visibleInputs = page.locator("input").filter({ visible: true });
+    const namedUpc = page.locator('input[name="upc"]').filter({ visible: true }).last();
+    const namedIsrcs = page.locator('input[name^="isrc["]').filter({ visible: true });
     const upcInput = await namedUpc.count()
         ? namedUpc
-        : await inputFollowingLabel(page, /^UPC$/i) ?? (await visibleInputs.count() ? visibleInputs.nth(0) : null);
+        : await inputFollowingLabel(page, /^UPC$/i);
     if (!upcInput) {
         const controls = await page.locator('input, textarea, [contenteditable="true"]').evaluateAll((elements) => elements.slice(0, 20).map((element) => ({
             tag: element.tagName.toLowerCase(),
@@ -44,8 +43,7 @@ export async function verifySoundfreshRelease(page, identifiers) {
     await upcInput.fill(identifiers.upc);
     for (let index = 0; index < identifiers.isrcs.length; index += 1) {
         const namedInput = (await namedIsrcs.count()) > index ? namedIsrcs.nth(index) : null;
-        const input = namedInput ?? await inputFollowingLabel(page, new RegExp(`^Track\\s+${index + 1}\\s+ISRC\\b`, "i"))
-            ?? ((await visibleInputs.count()) > index + 1 ? visibleInputs.nth(index + 1) : null);
+        const input = namedInput ?? await inputFollowingLabel(page, new RegExp(`^Track\\s+${index + 1}\\s+ISRC\\b`, "i"));
         if (!input)
             throw new Error(`SOUNDFRESH_UI_CHANGED:verify_isrc_input_${index + 1}:url=${page.url()}`);
         await input.fill(identifiers.isrcs[index]);
