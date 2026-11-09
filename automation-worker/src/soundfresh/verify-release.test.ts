@@ -13,10 +13,11 @@ describe('verifySoundfreshRelease', () => {
                 <input type="hidden" name="upc" value="old"><input type="hidden" name="isrc[0]" value="old">
                 <button onclick="document.body.dataset.wrongAction='yes'">Review Release</button>
                 <button onclick="document.body.dataset.wrongAction='yes'">Reject Release</button>
+                <button class="dropdown-toggle-split" data-bs-toggle="dropdown" aria-label="Verify Release" onclick="document.body.dataset.wrongAction='yes'">▼</button>
                 <a href="#" id="verify" onclick="document.querySelector('dialog').showModal();return false">Verifikasi Rilisan</a>
                 <dialog><label>UPC<input name="upc"></label>
                 <label>Track 1 ISRC<input name="isrc[0]"></label><label>Track 2 ISRC<input name="isrc[1]"></label>
-                <button onclick="document.body.dataset.saved='yes';this.closest('dialog').close()">Verify Release</button></dialog>`);
+                <button onclick="if(confirm('Verify UPC and ISRC?')){document.body.dataset.saved='yes';this.closest('dialog').close()}">Verify Release</button></dialog>`);
             await verifySoundfreshRelease(page, { upc: '1234567890123', isrcs: ['IDABC2612345', 'IDABC2612346'] });
             expect(await page.locator('#locale').innerText()).toBe('EN');
             expect(await page.locator('dialog input[name="upc"]').inputValue()).toBe('1234567890123');

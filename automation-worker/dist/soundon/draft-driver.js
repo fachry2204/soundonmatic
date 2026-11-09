@@ -21,7 +21,7 @@ export function assertNoSkippedFields(page) {
     if (skipped.length)
         throw new Error(`SOUNDON_REQUIRED_FIELD_UNRESOLVED:Isian wajib belum terkonfirmasi tersimpan pada form. Isian: ${[...new Set(skipped)].join('; ')}`);
 }
-export async function skipBlockedEntity(page, field, value, optional = false) {
+export async function skipBlockedEntity(page, field, value, optional = false, cause = "") {
     const dialogs = page.locator('.so-form-modal-dialog:visible');
     for (let attempt = 0; attempt < 3 && await dialogs.count(); attempt++) {
         const dialog = dialogs.last();
@@ -40,7 +40,7 @@ export async function skipBlockedEntity(page, field, value, optional = false) {
         console.warn(JSON.stringify({ event: 'optional_metadata_field_skipped', field, value, source: 'SoundOn' }));
         return;
     }
-    skippedFields.set(page, [...(skippedFields.get(page) ?? []), `${field}: ${value}`]);
+    skippedFields.set(page, [...(skippedFields.get(page) ?? []), `${field}: ${value}${cause ? ` [${cause}]` : ''}`]);
     console.warn(JSON.stringify({ event: 'required_metadata_field_unresolved', field, value, source: 'SoundOn' }));
 }
 export async function selectCreateArtistProfile(dialog) {
@@ -1687,7 +1687,7 @@ export async function setSearchField(page, label, value, optional = false, entit
         console.log(JSON.stringify({ event: "metadata_field_failed", field: label, value, role: contributorRole || undefined,
             error: error instanceof Error ? error.message : String(error), elapsed_ms: Date.now() - started }));
         if (error instanceof Error && canSkipEntityError(error.message)) {
-            await skipBlockedEntity(page, label, value, optional);
+            await skipBlockedEntity(page, label, value, optional, error.message);
             return;
         }
         throw error;
@@ -1810,9 +1810,14 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             throw new Error(`SOUNDON_UI_CHANGED:contributor_controls:${label}`);
                         await selectControl.first().locator("..").click({ force: true });
                         await page.waitForTimeout(300);
-                        const roleOption = page
-                            .locator(".semi-select-option-text:visible")
-                            .filter({ hasText: new RegExp(`^${escapeRegExp(contributorRole)}$`, "i") });
+                        const exactRole = new RegExp(`^${escapeRegExp(contributorRole)}$`, "i");
+                        const roleOption = page.locator(".semi-select-option-text")
+                            .filter({ hasText: exactRole })
+                            .or(page.getByRole('option', { name: exactRole }))
+                            .filter({ visible: true }).first();
+                        // Role lists are fetched asynchronously; a fixed 300ms
+                        // delay must not become a false role_unavailable error.
+                        await roleOption.waitFor({ state: 'visible', timeout: 8000 }).catch(() => undefined);
                         if (!(await roleOption.count())) {
                             if (!optional)
                                 throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:role_unavailable:${contributorRole}`);
@@ -1830,8 +1835,8 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             return;
                         }
                         await roleOption.first().evaluate((element) => {
-                            const option = element.closest(".semi-select-option");
-                            option?.click();
+                            const option = element.closest('.semi-select-option,[role="option"]') ?? element;
+                            option.click();
                         });
                         await page.waitForTimeout(300);
                         await selectControl.nth(1).evaluate((element) => {

@@ -34,6 +34,18 @@ final class AutomationErrorClassifier
             return ['code' => 'NETWORK_TIMEOUT', 'disposition' => 'retry'];
         }
         $message = strtoupper($error->getMessage());
+        foreach (['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'] as $draftGuard) {
+            if (str_contains($message, $draftGuard)) return ['code' => $draftGuard, 'disposition' => 'needs_attention'];
+        }
+        if (str_contains($message, 'SOUNDFRESH_REVIEW_FAILED')) {
+            if (str_contains($message, 'AUTH_SESSION_EXPIRED')) {
+                return ['code' => 'AUTH_SESSION_EXPIRED', 'disposition' => 'manual_auth'];
+            }
+            foreach (['CAPTCHA' => 'AUTH_CAPTCHA_REQUIRED', 'OTP' => 'AUTH_OTP_REQUIRED', 'MANUAL_AUTH' => 'AUTH_MANUAL_REQUIRED'] as $needle => $code) {
+                if (str_contains($message, $needle)) return ['code' => $code, 'disposition' => 'manual_auth'];
+            }
+            return ['code' => 'SOUNDFRESH_REVIEW_FAILED', 'disposition' => 'needs_attention'];
+        }
         if (str_contains($message, 'SOUNDON_MONETIZATION_NOT_ENABLED')) {
             return ['code' => 'SOUNDON_MONETIZATION_NOT_ENABLED', 'disposition' => 'needs_attention'];
         }

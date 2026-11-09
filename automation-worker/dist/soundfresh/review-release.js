@@ -1,4 +1,5 @@
 import { ensureSoundfreshEnglish } from './language.js';
+import { primaryReleaseAction, clickReleaseAction } from './release-action.js';
 function reviewStatus(page) {
     // Ignore sidebar/tab names: only a visible release status badge counts.
     return page.locator('.badge, [data-release-status], [role="status"]')
@@ -6,14 +7,13 @@ function reviewStatus(page) {
 }
 export async function moveSoundfreshReleaseToUnderReview(page, aggregator, draftId) {
     await ensureSoundfreshEnglish(page);
-    const action = page.getByRole("button", { name: /^Review Release$/i }).filter({ visible: true }).first()
-        .or(page.getByRole("link", { name: /^Review Release$/i }).filter({ visible: true }).first()).first();
+    const action = primaryReleaseAction(page, 'Review Release');
     if (!await action.count()) {
         if (await reviewStatus(page).count())
             return;
         throw new Error(`SOUNDFRESH_UI_CHANGED:review_release_button:url=${page.url()}`);
     }
-    await action.click({ timeout: 20_000 });
+    await clickReleaseAction(action);
     await page.waitForTimeout(400);
     const dialog = page.getByRole("dialog")
         .or(page.locator('.modal.show, .swal2-popup')).filter({ visible: true }).first();
@@ -46,7 +46,7 @@ export async function moveSoundfreshReleaseToUnderReview(page, aggregator, draft
     const confirm = scope.getByRole("button", { name: /^(Review Release|Review|Save|Confirm|Submit|Yes|OK)$/i }).filter({ visible: true }).last();
     if (!await confirm.count())
         throw new Error("SOUNDFRESH_UI_CHANGED:review_release_confirm");
-    await confirm.click({ timeout: 20_000 });
+    await clickReleaseAction(confirm);
     if (await dialog.count())
         await dialog.waitFor({ state: "hidden", timeout: 20_000 }).catch(() => undefined);
     await page.waitForTimeout(800);

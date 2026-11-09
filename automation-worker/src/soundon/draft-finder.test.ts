@@ -79,7 +79,7 @@ describe("findDraft", () => {
             getByText: () => missingSearch,
         } as any;
 
-        await expect(findDraft(page, "My Song", "Correct Artist")).resolves.toBeNull();
+        await expect(findDraft(page, "My Song", "Correct Artist")).rejects.toThrow('DRAFT_LOOKUP_UNCONFIRMED');
     });
 
     it("finds all matching single and album rows in one draft scan", async () => {

@@ -5,6 +5,29 @@ use PHPUnit\Framework\TestCase;
 
 class ReadableReleaseErrorTest extends TestCase
 {
+    public function test_draft_guards_explain_upload_was_blocked_without_deleting_drafts(): void
+    {
+        foreach (['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'] as $code) {
+            $result = ReadableReleaseError::explain($code, $code);
+            $this->assertSame('Pencegahan draft ganda aktif', $result['title']);
+            $this->assertStringContainsString('tidak dihapus', $result['action']);
+        }
+    }
+    public function test_review_failure_preserves_saved_draft_and_identifies_soundfresh(): void
+    {
+        $result = ReadableReleaseError::explain('SOUNDFRESH_REVIEW_FAILED', 'SOUNDFRESH_REVIEW_FAILED:locator.click: Timeout');
+        $this->assertSame('Pembaruan status Soundfresh gagal', $result['title']);
+        $this->assertStringContainsString('Draft SoundOn sudah tersimpan', $result['reason']);
+        $this->assertStringContainsString('checkpoint', $result['action']);
+    }
+
+    public function test_required_field_failure_shows_the_actual_unresolved_credit(): void
+    {
+        $result = ReadableReleaseError::explain('SOUNDON_REQUIRED_FIELD_UNRESOLVED',
+            'Detail teknis: SOUNDON_REQUIRED_FIELD_UNRESOLVED:Isian wajib belum terkonfirmasi tersimpan pada form. Isian: Songwriters: SHIONA');
+        $this->assertStringContainsString('Songwriters: SHIONA', $result['reason']);
+        $this->assertStringContainsString('tetap Pending', $result['action']);
+    }
     public function test_soundon_name_validation_is_not_reported_as_missing_profile(): void
     {
         $result = ReadableReleaseError::explain('SOUNDON_CONTRIBUTOR_NOT_PERSISTED',

@@ -7,6 +7,30 @@ final class ReadableReleaseError
     public static function explain(?string $code, ?string $message): array
     {
         $message = (string) $message;
+        if (in_array($code, ['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'], true)) {
+            return [
+                'title' => 'Pencegahan draft ganda aktif',
+                'reason' => $code === 'DRAFT_CREATION_IN_PROGRESS'
+                    ? 'Judul dan artis yang sama sedang diproses oleh job lain. Permintaan ini tidak membuat draft baru.'
+                    : 'Pencarian draft SoundOn belum dapat memastikan hasilnya. Pembuatan draft baru dihentikan agar tidak menggandakan rilisan.',
+                'action' => 'Tunggu proses yang berjalan selesai, lalu periksa draft SoundOn sebelum Retry. Draft yang sudah ada tidak dihapus oleh sistem.',
+            ];
+        }
+        if ($code === 'SOUNDFRESH_REVIEW_FAILED' || str_contains($message, 'SOUNDFRESH_REVIEW_FAILED:')) {
+            return [
+                'title' => 'Pembaruan status Soundfresh gagal',
+                'reason' => 'Draft SoundOn sudah tersimpan. Kegagalan terjadi saat mengubah status Soundfresh dari Pending ke Under Review, bukan saat upload ke SoundOn.',
+                'action' => 'Periksa sesi Soundfresh, pemilihan English, dan dialog Review Release. Retry melanjutkan dari checkpoint draft tersimpan; jangan membuat upload baru. Kirim Detail teknis jika tetap gagal.',
+            ];
+        }
+        if ($code === 'SOUNDON_REQUIRED_FIELD_UNRESOLVED'
+            && preg_match('/Isian:\s*([^\r\n]+)/u', $message, $fields)) {
+            return [
+                'title' => 'Isian wajib SoundOn belum tersimpan',
+                'reason' => 'Field yang belum terkonfirmasi: '.trim($fields[1]),
+                'action' => 'Draft belum dinyatakan berhasil dan Soundfresh tetap Pending. Periksa nama, role, atau pilihan pada field tersebut; jangan mengubah metadata lain yang tidak berkaitan.',
+            ];
+        }
         if ($code === 'SOUNDON_CONTRIBUTOR_NOT_PERSISTED'
             && preg_match('/SOUNDON_CONTRIBUTOR_NOT_PERSISTED:([^:]+):(.+?)(?=:stage=|:role=|[\r\n]|$)/u', $message, $match)) {
             $field = ['Primary artists' => 'Artis utama', 'Featured artists' => 'Artis pendukung', 'Songwriters' => 'Penulis lagu',

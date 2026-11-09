@@ -8,6 +8,20 @@ use Tests\TestCase;
 
 class AutomationErrorClassifierTest extends TestCase
 {
+    public function test_uncertain_or_concurrent_draft_creation_is_blocked_for_operator_review(): void
+    {
+        foreach (['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'] as $code) {
+            $this->assertSame(['code' => $code, 'disposition' => 'needs_attention'],
+                (new AutomationErrorClassifier)->classify(new \RuntimeException($code.':lookup blocked')));
+        }
+    }
+    public function test_review_timeout_is_attributed_to_soundfresh_not_soundon(): void
+    {
+        $classifier = new AutomationErrorClassifier;
+        $this->assertSame(['code' => 'SOUNDFRESH_REVIEW_FAILED', 'disposition' => 'needs_attention'],
+            $classifier->classify(new \RuntimeException('SOUNDFRESH_REVIEW_FAILED:locator.click: Timeout 30000ms')));
+        $this->assertSame('manual_auth', $classifier->classify(new \RuntimeException('SOUNDFRESH_REVIEW_FAILED:AUTH_SESSION_EXPIRED'))['disposition']);
+    }
     public function test_monetization_failure_is_not_misclassified_as_changed_ui(): void
     {
         $this->assertSame(['code' => 'SOUNDON_MONETIZATION_NOT_ENABLED', 'disposition' => 'needs_attention'],

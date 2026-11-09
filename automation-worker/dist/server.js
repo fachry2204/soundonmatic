@@ -8,12 +8,14 @@ import { loadRegistry } from "./selectors/registry.js";
 import { extractRelease } from "./soundfresh/extract.js";
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
+import { reserveDraftCreation } from './soundon/draft-creation-guard.js';
 import { findReleaseStatuses } from "./soundon/release-status-finder.js";
 import { findLastUpdatedDates } from "./soundon/release-status-finder.js";
 import { verifySoundfreshRelease } from "./soundfresh/verify-release.js";
 import { rejectSoundfreshRelease } from "./soundfresh/reject-release.js";
 import { moveSoundfreshReleaseToUploading } from "./soundfresh/upload-release.js";
 import { moveSoundfreshReleaseToUnderReview } from "./soundfresh/review-release.js";
+import { ensureSoundfreshEnglish } from './soundfresh/language.js';
 const app = Fastify({
     logger: {
         redact: [
@@ -254,6 +256,7 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             return reply
                 .code(401)
                 .send({ success: false, error: "AUTH_SESSION_EXPIRED" });
+        await ensureSoundfreshEnglish(page);
         const statusTab = page.getByRole("tab", { name: requestedStatusPattern }).or(page.getByText(requestedStatusPattern, { exact: true })).filter({ visible: true }).first();
         await statusTab.click();
         const table = page.locator(`table#${requestedStatus}:visible, table:visible`).filter({ has: page.locator("tbody tr") }).first();
@@ -510,6 +513,7 @@ app.post("/v1/soundfresh/releases/extract", async (req, reply) => {
                 .code(401)
                 .send({ success: false, error: "AUTH_SESSION_EXPIRED" });
         try {
+            await ensureSoundfreshEnglish(page);
             const metadata = await extractRelease(page, await loadRegistry());
             jobs.set(id, {
                 status: "metadata_extracted",
@@ -549,6 +553,10 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
             .send({ success: false, error: "DANGEROUS_ACTION_BLOCKED" });
     }
     const metadata = body.metadata ?? {};
+    const duplicateTitle = String(metadata.title ?? "").trim();
+    const duplicateArtist = String(metadata.primary_artist ?? metadata.artist ?? "").trim();
+    if (!duplicateTitle || !duplicateArtist)
+        return reply.code(422).send({ success: false, error: 'DRAFT_LOOKUP_METADATA_REQUIRED' });
     const trackCount = Math.max(1, Array.isArray(metadata.tracks) ? metadata.tracks.length : 1);
     const isMultiTrackRelease = trackCount > 1;
     const singleCreateUrl = process.env.SOUNDON_CREATE_RELEASE_URL?.trim()
@@ -560,15 +568,19 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
         await closeContext(browser);
         return reply.code(409).send({ success: false, error: "JOB_CANCELLED" });
     }
+    const releaseReservation = reserveDraftCreation(duplicateTitle, duplicateArtist);
+    if (!releaseReservation) {
+        await closeContext(browser);
+        return reply.code(409).send({ success: false, error: 'DRAFT_CREATION_IN_PROGRESS:Judul dan artis yang sama sedang diproses; draft baru tidak dibuat.' });
+    }
     activeJobContexts.set(id, browser);
     try {
         const page = await browser.newPage();
-        const duplicateTitle = String(metadata.title ?? "").trim();
-        const duplicateArtist = String(metadata.primary_artist ?? metadata.artist ?? "").trim();
         // Last, authoritative duplicate guard inside the create request. This
         // closes the race between the queue-level lookup and opening SoundOn's
         // creation form.
-        if (body.duplicates_checked !== true && duplicateTitle && duplicateArtist) {
+        // Earlier batch checks are advisory: never bypass this live check.
+        if (duplicateTitle && duplicateArtist) {
             await page.goto(draftsUrl, { waitUntil: "domcontentloaded" });
             await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
             if (/login|sign-in/i.test(page.url())) {
@@ -636,7 +648,12 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
     }
     finally {
         activeJobContexts.delete(id);
-        await closeContext(browser);
+        try {
+            await closeContext(browser);
+        }
+        finally {
+            releaseReservation();
+        }
     }
 });
 app.post("/v1/soundon/drafts/find", async (req, reply) => {
@@ -828,6 +845,7 @@ app.post("/v1/soundfresh/releases/reject", async (req, reply) => {
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
             return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
+        await ensureSoundfreshEnglish(page);
         await rejectSoundfreshRelease(page, reason);
         return { success: true, data: { rejected: true } };
     }
@@ -858,6 +876,7 @@ app.post("/v1/soundfresh/releases/upload-release", async (req, reply) => {
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
             return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
+        await ensureSoundfreshEnglish(page);
         await moveSoundfreshReleaseToUploading(page);
         return { success: true, data: { status: "uploading" } };
     }

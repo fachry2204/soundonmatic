@@ -235,14 +235,18 @@ final class ProcessReleaseJob implements ShouldQueue
 
                     return;
                 }
-                $review = $worker->review(
-                    $job->id,
-                    $job->soundfresh_release_url,
-                    (string) $job->soundon_draft_id,
-                    $soundfresh->session_state_encrypted,
-                );
+                try {
+                    $review = $worker->review(
+                        $job->id,
+                        $job->soundfresh_release_url,
+                        (string) $job->soundon_draft_id,
+                        $soundfresh->session_state_encrypted,
+                    );
+                } catch (Throwable $reviewError) {
+                    throw new \RuntimeException('SOUNDFRESH_REVIEW_FAILED:'.$reviewError->getMessage(), 0, $reviewError);
+                }
                 if (($review['reviewed'] ?? false) !== true) {
-                    throw new \RuntimeException('Soundfresh tidak mengonfirmasi status Under Review.');
+                    throw new \RuntimeException('SOUNDFRESH_REVIEW_FAILED:Soundfresh tidak mengonfirmasi status Under Review.');
                 }
                 $job->update([
                     'checkpoint' => ReleaseCheckpoint::SoundfreshReviewed,

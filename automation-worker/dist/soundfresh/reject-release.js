@@ -19,13 +19,12 @@ export async function rejectSoundfreshRelease(page, reason) {
                 'button[aria-expanded]',
             ].join(",")).filter({ hasText: /Verify Release/i }).filter({ visible: true }).first();
         if (!await dropdown.count()) {
-            dropdown = page.getByRole("button", { name: /^Verify Release\b/i }).filter({ visible: true }).first();
+            dropdown = page.locator('.btn-group').filter({ has: page.getByRole('button', { name: /^(Review Release|Verify Release|Upload Release)$/i }) })
+                .locator('.dropdown-toggle-split,[data-bs-toggle="dropdown"],[data-toggle="dropdown"]')
+                .filter({ visible: true }).first();
         }
         if (!await dropdown.count()) {
             dropdown = page.getByText(/Toggle Dropdown/i).filter({ visible: true }).first();
-        }
-        if (!await dropdown.count()) {
-            dropdown = page.getByText(/^Verify Release$/i).filter({ visible: true }).last();
         }
         if (!await dropdown.count()) {
             const buttons = (await page.getByRole("button").allInnerTexts().catch(() => [])).slice(0, 20);

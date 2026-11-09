@@ -1,5 +1,6 @@
 import type { Locator, Page } from "playwright";
 import { ensureSoundfreshEnglish } from './language.js';
+import { primaryReleaseAction, clickReleaseAction } from './release-action.js';
 
 export type VerifyReleaseIdentifiers = {
     upc: string;
@@ -15,14 +16,13 @@ async function inputFollowingLabel(page: Page, label: RegExp): Promise<Locator |
 
 export async function verifySoundfreshRelease(page: Page, identifiers: VerifyReleaseIdentifiers): Promise<void> {
     await ensureSoundfreshEnglish(page);
-    const verifyButton = page.getByRole("button", { name: /^Verify Release$/i })
-        .or(page.getByRole('link', { name: /^Verify Release$/i })).filter({ visible: true }).first();
+    const verifyButton = primaryReleaseAction(page, 'Verify Release');
     if (!await verifyButton.count()) {
         // Sidebar labels such as Published do not prove these identifiers saved.
         const buttons = (await page.getByRole("button").allInnerTexts().catch(() => [])).slice(0, 20);
         throw new Error(`SOUNDFRESH_UI_CHANGED:verify_release_button:buttons=${JSON.stringify(buttons)}:url=${page.url()}`);
     }
-    await verifyButton.click({ timeout: 20_000 });
+    await clickReleaseAction(verifyButton);
 
     const modal = page.getByRole("dialog").or(page.locator('.modal.show, .swal2-popup'))
         .filter({ visible: true }).first();
@@ -59,7 +59,7 @@ export async function verifySoundfreshRelease(page: Page, identifiers: VerifyRel
 
     const submit = modal.getByRole("button", { name: /^Verify Release$/i }).filter({ visible: true }).last();
     if (!await submit.count()) throw new Error(`SOUNDFRESH_UI_CHANGED:verify_submit:url=${page.url()}`);
-    await submit.click({ timeout: 20_000 });
+    await clickReleaseAction(submit);
     await modal.waitFor({ state: "hidden", timeout: 20_000 }).catch(() => undefined);
     if (await modal.isVisible().catch(() => false)) {
         const error = await modal.locator('[role="alert"], .alert-danger, .text-danger, [class*="error" i]').first().innerText().catch(() => "");

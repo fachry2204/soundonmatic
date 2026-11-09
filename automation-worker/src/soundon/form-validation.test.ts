@@ -163,18 +163,18 @@ describe("SoundOn validation", () => {
             expect(await page.evaluate(() => (window as any).opened)).toBeUndefined();
         } finally { await browser.close(); }
     }, 10000);
-    it("selects the contributor role in a custom modal and verifies the requested credit field", async () => {
+    it("waits for a delayed ARIA contributor role and verifies the requested credit field", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
             const page = await browser.newPage();
             await page.setContent(`<section><span class="soundon-formik-field-label">Production and additional contributors</span><div id="saved"></div><button onclick="document.querySelector('.so-form-modal-dialog').hidden=false">Add</button></section>
                 <section><span class="soundon-formik-field-label">Primary artists</span><span>Sadadi Nusantara</span></section>
                 <div class="so-form-modal-dialog" hidden><h4>Add contributor</h4>
-                <div class="semi-select" onclick="document.querySelector('#roles').hidden=false"><div class="semi-select-content-wrapper">Choose role</div></div>
+                <div class="semi-select" onclick="setTimeout(()=>document.querySelector('#roles').hidden=false,900)"><div class="semi-select-content-wrapper">Choose role</div></div>
                 <div class="semi-select" onclick="this.classList.add('semi-select-open');document.querySelector('#credit-name').hidden=false;document.querySelector('#add-credit').hidden=false"><label>Name</label><div class="semi-select-content-wrapper">Choose artist</div><input id="credit-name" type="text" hidden></div>
                 <div id="add-credit" hidden onclick="document.querySelector('#submit-credit').disabled=window.role!=='Producer';this.hidden=true">Add "Sadadi Nusantara" as an artist</div>
                 <button id="submit-credit" disabled onclick="document.querySelector('#saved').innerHTML='<span>Sadadi Nusantara</span><span>Producer</span>';this.parentElement.hidden=true">Submit</button></div>
-                <div id="roles" class="semi-portal" hidden><div class="semi-select-option" onclick="window.role='Producer';this.parentElement.hidden=true"><span class="semi-select-option-text">Producer</span></div></div>`);
+                <div id="roles" class="semi-portal" hidden><div role="option" onclick="window.role='Producer';this.parentElement.hidden=true">Producer</div></div>`);
             await setSearchField(page, 'Production and additional contributors', 'Sadadi Nusantara', false, 0, 'Producer');
             expect(await page.evaluate(() => (window as any).role)).toBe('Producer');
             expect(await page.locator('#saved').innerText()).toContain('Sadadi Nusantara');
