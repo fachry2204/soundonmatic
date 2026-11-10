@@ -3,6 +3,40 @@ import { chromium } from 'playwright';
 import { findDraft } from './draft-finder.js';
 
 describe('live draft result readiness', () => {
+    it('ignores an existing draft upload progress bar when checking list readiness', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.goto('data:text/html,<!doctype html>');
+            await page.setContent(`<button role="tab" aria-selected="true">Drafts 116</button><input placeholder="Search">
+                <table><tbody><tr><td>Ruang Privat Kita</td><td>Rizki Fadillah</td>
+                <td><div role="progressbar" aria-valuenow="73">73%</div></td></tr></tbody></table>`);
+            expect((await findDraft(page, 'Ruang Privat Kita', 'Rizki Fadillah'))?.found).toBe(true);
+        } finally { await browser.close(); }
+    }, 10000);
+
+    it('still waits for an indeterminate list loading spinner before reading the matching draft', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.goto('data:text/html,<!doctype html>');
+            await page.setContent(`<button role="tab" aria-selected="true">Drafts</button>
+                <input placeholder="Search" oninput="document.querySelector('#spinner').hidden=false;setTimeout(()=>{document.querySelector('tbody').innerHTML='<tr><td>My Song</td><td>Artist A</td></tr>';document.querySelector('#spinner').hidden=true},3000)">
+                <div id="spinner" role="progressbar" hidden>Loading</div><table><tbody><tr><td>Old Song</td><td>Other Artist</td></tr></tbody></table>`);
+            expect((await findDraft(page, 'My Song', 'Artist A'))?.found).toBe(true);
+        } finally { await browser.close(); }
+    }, 15000);
+
+    it('rejects an unrelated list that does not prove search was applied', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.goto('data:text/html,<!doctype html>');
+            await page.setContent('<button role="tab" aria-selected="true">Drafts</button><input placeholder="Search"><table><tbody><tr><td>Other Song</td><td>Other Artist</td></tr></tbody></table>');
+            await expect(findDraft(page, 'Ruang Privat Kita', 'Rizki Fadillah')).rejects.toThrow('DRAFT_LOOKUP_UNCONFIRMED:Hasil Drafts tidak menunjukkan judul');
+        } finally { await browser.close(); }
+    }, 10000);
+
     it('recognizes the explicit No matching results empty state as a completed search', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

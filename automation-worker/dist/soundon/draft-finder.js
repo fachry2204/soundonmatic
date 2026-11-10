@@ -33,10 +33,10 @@ async function searchDraftList(page, title) {
         return false;
     await search.fill(title);
     await search.press("Enter").catch(() => undefined);
-    await waitForDraftResults(page);
+    await waitForDraftResults(page, title);
     return true;
 }
-async function waitForDraftResults(page) {
+async function waitForDraftResults(page, searchedTitle) {
     // A 350ms debounce is not evidence of an absent draft. Require settled,
     // meaningful results; a blank shell/loading/error must block creation.
     const started = Date.now();
@@ -47,7 +47,17 @@ async function waitForDraftResults(page) {
         const state = await page.evaluate(() => {
             const visible = (element) => element.getClientRects().length > 0
                 && getComputedStyle(element).visibility !== 'hidden';
-            const busy = Array.from(document.querySelectorAll('[aria-busy="true"],.semi-spin-spinning,[role="progressbar"]')).some(visible);
+            const busy = Array.from(document.querySelectorAll('[aria-busy="true"],.semi-spin-spinning,[role="progressbar"]'))
+                .filter(visible).some(element => {
+                if (element.getAttribute('role') !== 'progressbar')
+                    return true;
+                // Draft rows have a permanent, determinate upload progress
+                // bar (e.g. 73%). It is not the list/search spinner.
+                if (element.closest('tbody tr,[role="row"],.semi-table-row'))
+                    return false;
+                return !element.hasAttribute('aria-valuenow')
+                    && !/\d+\s*%/.test(`${element.getAttribute('aria-valuetext') ?? ''} ${element.textContent ?? ''}`);
+            });
             const rows = Array.from(document.querySelectorAll('tbody tr,[role="row"],.semi-table-row,article,[data-testid*="draft" i],[class*="card" i]'))
                 .filter(visible).map(element => element.innerText).join('\n');
             const emptyTexts = Array.from(document.querySelectorAll('[class*="empty" i],[role="status"],p,div,span'))
@@ -74,12 +84,19 @@ async function waitForDraftResults(page) {
             await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {
                 throw new Error('DRAFT_LOOKUP_UNCONFIRMED:Pencarian draft belum selesai memuat data');
             });
+            // An unchanged, unrelated list is not proof that SoundOn applied
+            // its search. Allow absence only for an explicit empty state or a
+            // result containing the searched title; otherwise fail closed.
+            if (!state.empty && !normalize(state.rows).includes(normalize(searchedTitle))) {
+                console.warn(JSON.stringify({ event: 'draft_search_not_applied', title: searchedTitle, state: lastState }));
+                throw new Error('DRAFT_LOOKUP_UNCONFIRMED:Hasil Drafts tidak menunjukkan judul yang dicari; upload baru dihentikan. Periksa log worker.');
+            }
             return;
         }
         await page.waitForTimeout(200);
     }
     console.warn(JSON.stringify({ event: 'draft_lookup_unconfirmed', state: lastState }));
-    throw new Error(`DRAFT_LOOKUP_UNCONFIRMED:Hasil pencarian draft belum terkonfirmasi; upload baru dihentikan:state=${JSON.stringify(lastState)}`);
+    throw new Error('DRAFT_LOOKUP_UNCONFIRMED:Hasil pencarian draft belum terkonfirmasi; upload baru dihentikan. Periksa log worker.');
 }
 async function ensureDraftsView(page) {
     const draftsTab = page.getByRole("tab", { name: /^drafts?\b/i }).filter({ visible: true }).first();
@@ -187,7 +204,7 @@ export async function findDraft(page, title, artist) {
             next.click(),
         ]);
         if (searched)
-            await waitForDraftResults(page);
+            await waitForDraftResults(page, title);
     }
     return null;
 }
