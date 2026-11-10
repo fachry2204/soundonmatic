@@ -56,19 +56,26 @@ async function waitForDraftResults(page: Page): Promise<void> {
     const started = Date.now();
     let last = '';
     let stableSince = started;
+    let lastState: unknown = null;
     while (Date.now() - started < 15000) {
         const state = await page.evaluate(() => {
             const visible = (element: Element) => element.getClientRects().length > 0
                 && getComputedStyle(element).visibility !== 'hidden';
             const busy = Array.from(document.querySelectorAll('[aria-busy="true"],.semi-spin-spinning,[role="progressbar"]')).some(visible);
-            const rows = Array.from(document.querySelectorAll('tr,[role="row"],article,[data-testid*="draft" i],[class*="card" i]'))
+            const rows = Array.from(document.querySelectorAll('tbody tr,[role="row"],.semi-table-row,article,[data-testid*="draft" i],[class*="card" i]'))
                 .filter(visible).map(element => (element as HTMLElement).innerText).join('\n');
-            const empty = Array.from(document.querySelectorAll('.semi-empty,[role="status"],p,div'))
-                .filter(visible).some(element => /^(no (?:data|results?|releases?|drafts?)(?: found)?|nothing found|tidak ada data)[.!]?$/i.test(element.textContent?.trim() ?? ''));
+            const emptyTexts = Array.from(document.querySelectorAll('[class*="empty" i],[role="status"],p,div,span'))
+                .filter(visible).map(element => element.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+                .filter(text => /^(?:(?:there (?:is|are) )?no (?:matching )?(?:data|results?|releases?|drafts?|records?|songs?)(?: (?:were )?found| available| yet| to display)?|nothing found|tidak ada data)(?:[.!]|$)/i.test(text))
+                .filter(text => text.length < 500);
+            const empty = emptyTexts.length > 0;
             const error = Array.from(document.querySelectorAll('[role="alert"],.semi-empty'))
                 .filter(visible).some(element => /failed|error|try again|gagal/i.test(element.textContent ?? ''));
-            return { busy, rows, empty, error };
+            return { busy, rows, empty, error, emptyTexts, path: location.pathname,
+                headings: Array.from(document.querySelectorAll('h1,h2,[role="tab"]')).filter(visible).map(element => element.textContent?.trim()).slice(0, 8) };
         });
+        lastState = { ...state, rows: state.rows.slice(0, 600) };
+        if (/\/login|sign-in/i.test(state.path)) throw new Error('AUTH_SESSION_EXPIRED');
         if (state.error) throw new Error('DRAFT_LOOKUP_UNCONFIRMED:SoundOn menampilkan error saat mencari draft');
         const snapshot = JSON.stringify([state.rows, state.empty]);
         if (state.busy || snapshot !== last) stableSince = Date.now();
@@ -82,7 +89,8 @@ async function waitForDraftResults(page: Page): Promise<void> {
         }
         await page.waitForTimeout(200);
     }
-    throw new Error('DRAFT_LOOKUP_UNCONFIRMED:Hasil pencarian draft belum terkonfirmasi; upload baru dihentikan');
+    console.warn(JSON.stringify({ event: 'draft_lookup_unconfirmed', state: lastState }));
+    throw new Error(`DRAFT_LOOKUP_UNCONFIRMED:Hasil pencarian draft belum terkonfirmasi; upload baru dihentikan:state=${JSON.stringify(lastState)}`);
 }
 
 async function ensureDraftsView(page: Page): Promise<void> {
@@ -134,6 +142,7 @@ export async function findDraft(
     if (!wantedTitle || !wantedArtist) throw new Error("DRAFT_LOOKUP_METADATA_REQUIRED");
 
     await ensureDraftsView(page);
+    if (/\/login|sign-in/i.test(page.url())) throw new Error('AUTH_SESSION_EXPIRED');
 
     // SoundOn's current pagination arrows have no accessible "Next" name.
     // Its draft search is therefore the authoritative and fastest way to
@@ -143,7 +152,7 @@ export async function findDraft(
     for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
         await page.waitForLoadState("domcontentloaded");
         let candidates = page.locator(
-            'tr, [role="row"], article, li, [data-testid*="draft" i], [class*="card" i]',
+            'tr, [role="row"], .semi-table-row, article, li, [data-testid*="draft" i], [class*="card" i]',
         );
         if (!(await candidates.count())) candidates = page.locator("div");
         const count = Math.min(await candidates.count(), 500);

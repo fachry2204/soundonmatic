@@ -27,6 +27,29 @@ final class ReleaseStatusTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_status_refresh_reports_worker_start_failure_before_clearing_previous_results(): void
+    {
+        Queue::fake();
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        foreach (['soundfresh', 'soundon'] as $platform) {
+            AutomationAccount::query()->create([
+                'platform' => $platform, 'name' => $platform, 'status' => 'active',
+                'session_state_encrypted' => ['cookies' => []], 'last_authenticated_at' => now(),
+            ]);
+        }
+        $oldRun = AutomationRun::query()->create(['status' => 'completed', 'summary_json' => ['purpose' => 'soundon_status_check']]);
+        app()->instance(\App\Services\Automation\LocalSystemManager::class, new class {
+            public function start(): array { throw new \RuntimeException('Checker could not start'); }
+        });
+        Livewire::actingAs($viewer)->test(ReleaseStatus::class)->call('refreshSoundOnStatuses')
+            ->assertSet('bulkCheckRequested', false)
+            ->assertSet('syncMessage', 'Pemeriksaan belum dimulai: layanan browser atau antrean status gagal dinyalakan. Detail: Checker could not start');
+        Queue::assertNotPushed(QueueSoundOnStatusChecks::class);
+        $this->assertDatabaseHas('automation_runs', ['id' => $oldRun->id]);
+    }
+
     public function test_poll_surfaces_collection_failure_instead_of_reporting_success(): void
     {
         $this->seed(AccessControlSeeder::class);

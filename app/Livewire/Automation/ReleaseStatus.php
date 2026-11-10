@@ -9,6 +9,7 @@ use App\Enums\AutomationRunStatus;
 use App\Enums\Platform;
 use App\Exceptions\CredentialsNotConfiguredException;
 use App\Services\Automation\SessionManager;
+use App\Services\Automation\LocalSystemManager;
 use App\Jobs\CheckSoundOnReleaseStatus;
 use App\Jobs\QueueSoundOnStatusChecks;
 use App\Jobs\VerifySoundfreshReleaseIdentifiers;
@@ -141,6 +142,18 @@ final class ReleaseStatus extends Component
             $this->syncMessage = $error->keyMismatch
                 ? "Credential {$label} dari database lama tidak dapat dibaca. Masukkan ulang email dan password di Pengaturan Platform sebelum cek status."
                 : "Credential {$label} belum lengkap. Isi di Pengaturan Platform sebelum cek status.";
+
+            return;
+        }
+
+        try {
+            // Unlike pending collection, this screen previously only queued
+            // work. With a stopped checker that looked like a silent no-op.
+            app(LocalSystemManager::class)->start();
+        } catch (\Throwable $error) {
+            report($error);
+            $this->bulkCheckRequested = false;
+            $this->syncMessage = 'Pemeriksaan belum dimulai: layanan browser atau antrean status gagal dinyalakan. Detail: '.$error->getMessage();
 
             return;
         }
