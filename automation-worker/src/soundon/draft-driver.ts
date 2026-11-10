@@ -14,6 +14,16 @@ const entityPersistTimeout = 6_000;
 const entityMaxRetries = 1;
 const skippedFields = new WeakMap<Page, string[]>();
 const optionalFieldWarnings = new WeakMap<Page, string[]>();
+const rightsHolderDefault = "Soundfresh.ID";
+
+/** Configured selector registries use metadata paths instead of form labels. */
+export function registryRightsHolderDefault(path: string, label = ""): string | null {
+    const canonical = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const key = canonical(path.split('.').pop() ?? "");
+    const selectorLabel = canonical(label.replace(/\s*\(optional\)\s*$/i, ""));
+    return [key, selectorLabel].some(value => ["recordlabel", "pline", "cline"].includes(value))
+        ? rightsHolderDefault : null;
+}
 
 export function canSkipEntityError(message: string): boolean {
     return /^SOUNDON_UI_CHANGED:(blocking_dialog|stale_dialog):/.test(message)
@@ -109,7 +119,10 @@ async function createFromRegistry(
         const target = locate(page, field.selector);
         if ((await target.count()) !== 1)
             throw new Error(`SELECTOR_NOT_UNIQUE:${path}`);
-        const value = valueAt(metadata, path);
+        const selectorLabel = field.selector.strategy === "label" ? field.selector.value
+            : field.selector.strategy === "role" ? field.selector.name : "";
+        const value = (field.type === "text" ? registryRightsHolderDefault(path, selectorLabel) : null)
+            ?? valueAt(metadata, path);
         if (field.type === "checkbox") await target.setChecked(Boolean(value));
         else if (field.type === "select")
             await target.selectOption({ label: String(value ?? "") });
@@ -256,12 +269,7 @@ async function createKnownSoundOnDraft(
         );
     }
     await closeResidualEntityDialogs(page);
-    await setTextField(
-        page,
-        "Record label",
-        "Soundfresh.ID",
-        false,
-    );
+    await setRightsHolderDefaults(page, true);
     await setRadioIfPresent(
         page,
         ["This track contains licensed content"],
@@ -494,7 +502,7 @@ async function createKnownSoundOnAlbumDraft(
     // page depending on the EP/Album form revision. Fill it here when present,
     // then enforce the same default on the publishing-rights page below.
     await setPublisherField(page, "Soundfresh.ID", true);
-    await setTextField(page, "Record label", "Soundfresh.ID", true);
+    await setRightsHolderDefaults(page);
     await setSectionFile(page, "#form-section-cover-art", String(metadata.cover?.local_path ?? ""), "cover");
     const hasUpc = Boolean(String(metadata.upc ?? "").trim());
     await setScopedRadio(page, "Previously released?", hasUpc || metadata.previously_released
@@ -610,7 +618,7 @@ async function createKnownSoundOnAlbumDraft(
         for (const contributor of contributorEntries(track.production_contributors || track.primary_artist, "Producer"))
             await setContributorWithFallback(page, "Production and additional contributors", contributor.name, contributor.role, String(track.primary_artist ?? metadata.primary_artist ?? ""), "Producer");
         await closeResidualEntityDialogs(page);
-        await setTextField(page, "Record label", "Soundfresh.ID", true);
+        await setRightsHolderDefaults(page);
         await setRadioIfPresent(page, ["Previously released?", "Previously released"], (track.previously_released ?? metadata.previously_released) || hasUpc
             ? "Yes, I want to move my music from another distributor to SoundOn"
             : "No, I want to distribute a new release");
@@ -1132,6 +1140,20 @@ export function matchesFieldLabel(candidate: string | null | undefined, label: s
     if (!normalized.startsWith(expected)) return false;
     const suffix = normalized.slice(expected.length).trim();
     return suffix === "" || suffix.startsWith("(") || suffix.startsWith("*") || suffix.startsWith("required");
+}
+
+export async function setRightsHolderDefaults(page: Page, recordLabelRequired = false): Promise<void> {
+    await setTextField(page, "Record label", rightsHolderDefault, !recordLabelRequired);
+    // SoundOn supplies the copyright year itself; these inputs contain only
+    // the rights-holder name, not the ℗/© prefix or release year.
+    for (const label of ["P-line", "C-line"]) {
+        const labels = page.locator(".soundon-formik-field-label").filter({ hasText: label, visible: true });
+        if ((await labels.allTextContents()).some(text => matchesFieldLabel(text, label))) {
+            // Once SoundOn exposes the field, a missing control or rejected
+            // value must be reported rather than silently claiming it was set.
+            await setTextField(page, label, rightsHolderDefault);
+        }
+    }
 }
 
 export async function setTextField(
