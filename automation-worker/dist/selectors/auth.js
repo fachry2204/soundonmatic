@@ -10,7 +10,7 @@ export const authSelectors = {
         email: "Email Address",
         password: "Password",
         submit: "Log in",
-        authenticatedUrl: /\/(?:dashboard|releases|catalog)(?:\/|\?|$)/i,
+        authenticatedUrl: /\/(?:dashboard|releases|catalog|library|overview)(?:\/|$)/i,
     },
     challenge: /captcha|verification code|one-time password|verify your device|verify to continue|security verification|slide to verify|otp/i,
     invalidCredentials: /invalid credentials|invalid email|incorrect password|email or password|credentials do not match|login failed|unable to log in/i,

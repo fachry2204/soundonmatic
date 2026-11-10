@@ -42,6 +42,7 @@ final class ValidateReleaseMetadata
             'tracks.*.title' => 'required|string|max:255',
             'tracks.*.title_language' => 'nullable|string|max:100',
             'tracks.*.language' => 'nullable|string|max:100',
+            'tracks.*.lyrics' => 'nullable|string|max:20000',
             'tracks.*.version' => 'nullable|string|max:255',
             'tracks.*.genre' => 'nullable|string|max:255',
             'tracks.*.subgenre' => 'nullable|string|max:255',

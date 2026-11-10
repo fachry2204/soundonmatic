@@ -283,12 +283,11 @@ final class ProcessReleaseJob implements ShouldQueue
                 return;
             }
             if (str_contains(strtoupper($e->getMessage()), 'AUTH_SESSION_EXPIRED')) {
-                // The remote session can expire between the periodic health
-                // check and the actual extract/upload request. Clearing both
-                // cached sessions makes the next queued attempt authenticate
-                // again instead of reusing the same rejected browser state.
-                $sessions->clear(Platform::Soundfresh);
-                $sessions->clear(Platform::SoundOn);
+                // Keep both cached sessions. The next attempt validates each
+                // independently and only logs in if that platform is expired.
+                \App\Models\AutomationAccount::query()->whereIn('platform', [Platform::Soundfresh->value, Platform::SoundOn->value])
+                    ->update(['last_authenticated_at' => null]);
+                logger()->info('platform_session_revalidation_required', ['release_job_id' => $job->id]);
             }
             $classification = $classifier->classify($e);
             $rawError = $e instanceof ValidationException

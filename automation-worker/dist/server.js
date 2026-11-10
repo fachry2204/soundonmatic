@@ -9,6 +9,7 @@ import { extractRelease } from "./soundfresh/extract.js";
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
 import { reserveDraftCreation } from './soundon/draft-creation-guard.js';
+import { dismissSoundOnTwoStepPrompt, sessionStateOnPage } from './browser/session-validation.js';
 import { findReleaseStatuses } from "./soundon/release-status-finder.js";
 import { findLastUpdatedDates } from "./soundon/release-status-finder.js";
 import { verifySoundfreshRelease } from "./soundfresh/verify-release.js";
@@ -98,23 +99,18 @@ app.addHook("preParsing", async (req, reply, payload) => {
 });
 app.post("/v1/sessions/validate", async (req) => {
     const body = req.body;
+    if (!['soundfresh', 'soundon'].includes(body.platform))
+        throw new Error('INVALID_PLATFORM');
     const browser = await sessionContext(body.session_state);
     try {
         const page = await browser.newPage();
-        await page.goto(loginUrl(body.platform), {
+        await page.goto(body.platform === 'soundfresh' ? `${baseUrl('soundfresh')}/admin/releases` : `${baseUrl('soundon')}/library/list`, {
             waitUntil: "domcontentloaded",
         });
         await page.waitForTimeout(2_000);
-        const selectors = body.platform === "soundfresh" ? authSelectors.soundfresh : authSelectors.soundon;
-        const passwordField = body.platform === "soundon"
-            ? page.getByPlaceholder(selectors.password, { exact: true })
-            : page.getByLabel(selectors.password, { exact: true });
-        const loginFormVisible = await passwordField.isVisible().catch(() => false);
-        const path = new URL(page.url()).pathname;
-        const authenticatedRoute = selectors.authenticatedUrl.test(path);
-        const challengeVisible = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
-        const valid = !loginFormVisible && !/login|sign-in/i.test(path) && (authenticatedRoute || !challengeVisible);
-        return { success: true, data: { valid } };
+        const status = await sessionStateOnPage(page, body.platform);
+        return { success: true, data: { valid: status === 'valid', status,
+                ...(status === 'valid' ? { session_state: await browser.storageState({ indexedDB: true }) } : {}) } };
     }
     finally {
         await closeContext(browser);
@@ -179,6 +175,8 @@ app.post("/v1/sessions/login", async (req, reply) => {
                 .first()
                 .waitFor({ state: "visible", timeout: 20_000 }),
         ]).catch(() => undefined);
+        if (body.platform === 'soundon')
+            await dismissSoundOnTwoStepPrompt(page);
         let challenge = await page
             .getByText(authSelectors.challenge)
             .first()
@@ -191,6 +189,8 @@ app.post("/v1/sessions/login", async (req, reply) => {
             const deadline = Date.now() + 180_000;
             while (Date.now() < deadline) {
                 await page.waitForTimeout(500);
+                if (body.platform === 'soundon')
+                    await dismissSoundOnTwoStepPrompt(page);
                 const path = new URL(page.url()).pathname;
                 const formStillVisible = await passwordInput.isVisible().catch(() => false);
                 challenge = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
@@ -229,7 +229,7 @@ app.post("/v1/sessions/login", async (req, reply) => {
             success: true,
             data: {
                 manual_auth_required: false,
-                session_state: await browser.storageState(),
+                session_state: await browser.storageState({ indexedDB: true }),
                 landing_url: page.url(),
             },
         };

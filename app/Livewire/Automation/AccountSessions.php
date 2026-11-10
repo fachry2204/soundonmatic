@@ -77,7 +77,12 @@ final class AccountSessions extends Component
         }
         $rules = ['email' => ['required', 'email', 'max:255'], 'password' => [$hasPassword ? 'nullable' : 'required', 'string', 'min:6', 'max:255']];
         $data = validator(['email' => $this->emails[$platform] ?? '', 'password' => $this->passwords[$platform] ?? ''], $rules)->validate();
-        $updates = ['email_encrypted' => $data['email'], 'session_state_encrypted' => null, 'session_expires_at' => null, 'status' => 'expired'];
+        $identityChanged = ! $hasPassword || (string) ($account->email_encrypted ?? '') !== $data['email']
+            || ($data['password'] !== '' && ! hash_equals((string) ($account->password_encrypted ?? ''), $data['password']));
+        $updates = ['email_encrypted' => $data['email']];
+        if ($identityChanged) {
+            $updates += ['session_state_encrypted' => null, 'session_expires_at' => null, 'status' => 'expired'];
+        }
         if ($data['password'] !== '') {
             $updates['password_encrypted'] = $data['password'];
         }

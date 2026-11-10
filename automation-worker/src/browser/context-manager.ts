@@ -5,6 +5,7 @@ import {
 } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { dismissSoundOnTwoStepPrompt } from './session-validation.js';
 const contextBrowsers = new WeakMap<BrowserContext, Awaited<ReturnType<typeof chromium.launch>>>();
 const launchOptions = () => ({
     headless: process.env.BROWSER_HEADLESS !== "false",
@@ -38,6 +39,16 @@ export async function sessionContext(
             acceptDownloads: true,
         });
         await browserContext.addInitScript("window.__name = window.__name || function(fn) { return fn; };");
+        browserContext.on('page', page => {
+            const prompt = page.locator('[role="dialog"],[aria-modal="true"],dialog,.semi-modal,.so-form-modal-dialog')
+                .filter({ hasText: /(?:two|2)[-\s]*(?:step|factor)|2fa/i })
+                .filter({ has: page.getByText(/^not\s*now$/i) });
+            void page.addLocatorHandler(prompt.first(), async () => {
+                const hostname = new URL(page.url()).hostname.toLowerCase();
+                if (hostname === 'soundon.global' || hostname.endsWith('.soundon.global'))
+                    await dismissSoundOnTwoStepPrompt(page);
+            }, { noWaitAfter: true }).catch(() => undefined);
+        });
         contextBrowsers.set(browserContext, browser);
 
         return browserContext;

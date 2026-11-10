@@ -38,6 +38,51 @@ const normalizeUpc = (value) => {
     const normalized = String(value ?? "").trim().replace(/[\s-]+/g, "");
     return /^\d{12,13}$/.test(normalized) ? normalized : null;
 };
+/** Open and read only the lyrics belonging to this track, preserving line breaks. */
+export async function extractTrackLyrics(track) {
+    const toggle = track.getByRole('button', { name: /show\s*\/\s*hide\s+lyrics/i })
+        .or(track.getByRole('link', { name: /show\s*\/\s*hide\s+lyrics/i })).first();
+    if (!await toggle.count())
+        return null;
+    const wasExpanded = await toggle.getAttribute('aria-expanded') === 'true';
+    if (!wasExpanded)
+        await toggle.click();
+    await track.page().waitForTimeout(300);
+    const result = await toggle.evaluate((button) => {
+        const root = button.closest('.accordion-item');
+        if (!root)
+            return null;
+        const target = button.getAttribute('aria-controls') || button.getAttribute('data-bs-target') ||
+            button.getAttribute('data-target') || button.getAttribute('href');
+        let content = null;
+        if (target) {
+            const id = target.replace(/^.*#/, '');
+            content = Array.from(root.querySelectorAll('[id]')).find(el => el.id === id) ?? null;
+        }
+        if (!content) {
+            let current = button;
+            while (current && current !== root && !content) {
+                let next = current.nextElementSibling;
+                while (next && !content) {
+                    if (next.matches('.collapse, [id*="lyric" i], [class*="lyric" i], pre, textarea'))
+                        content = next;
+                    else
+                        content = next.querySelector('.collapse, [id*="lyric" i], [class*="lyric" i], pre, textarea');
+                    next = next.nextElementSibling;
+                }
+                current = current.parentElement;
+            }
+        }
+        if (!content)
+            return null;
+        const input = content.matches('textarea') ? content : content.querySelector('textarea');
+        const value = input ? input.value : content.innerText;
+        return (value ?? '').replace(/\r\n?/g, '\n').trim();
+    });
+    if (result === null)
+        throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_content');
+    return result || null;
+}
 export async function extractRelease(page, registry) {
     if (registry.soundfresh.configured) {
         return extractFromRegistry(page, registry);
@@ -79,6 +124,11 @@ async function extractSoundfreshDetail(page) {
     }
     if (accordionCount > 0)
         await page.waitForTimeout(300);
+    const trackItems = page.locator('.accordion-item');
+    const lyricsByTrack = [];
+    for (let index = 0; index < await trackItems.count(); index++) {
+        lyricsByTrack.push(await extractTrackLyrics(trackItems.nth(index)));
+    }
     let clickedCover = null;
     const coverButton = page
         .getByRole("link", { name: /album cover/i })
@@ -236,6 +286,7 @@ async function extractSoundfreshDetail(page) {
         title: fields.Title ?? `Track ${index + 1}`,
         title_language: fields["Title language"] ?? null,
         language: fields["Lyrics Language"] ?? fields["Title language"] ?? null,
+        lyrics: lyricsByTrack[index] ?? null,
         version: fields.Version ?? null,
         genre: fields.Genre ?? raw.release.Genre ?? null,
         subgenre: fields.Subgenre ?? raw.release.Subgenre ?? null,

@@ -153,6 +153,8 @@ async function createKnownSoundOnDraft(page, metadata) {
     await setChoiceField(page, "Genre", normalizeGenre(track.genre ?? metadata.genre), true);
     await setChoiceField(page, "Subgenre", normalizeSubgenre(track.subgenre ?? metadata.subgenre), true);
     await setScopedRadio(page, "Instrumental", track.instrumental ? "Yes" : "No");
+    if (!track.instrumental && track.lyrics)
+        await setTextField(page, "Lyrics", String(track.lyrics));
     let lyricsLanguageSet = track.instrumental
         ? true
         : await setChoiceIfPresent(page, ["Lyrics language", "Lyrics Language"], normalizeLanguage(track.language));
@@ -435,6 +437,8 @@ async function createKnownSoundOnAlbumDraft(page, metadata, tracks) {
         await setChoiceField(page, "Genre", normalizeGenre(track.genre ?? metadata.genre), true);
         await setChoiceField(page, "Subgenre", normalizeSubgenre(track.subgenre ?? metadata.subgenre), true);
         await setScopedRadio(page, "Instrumental", track.instrumental ? "Yes" : "No");
+        if (!track.instrumental && track.lyrics)
+            await setTextField(page, "Lyrics", String(track.lyrics));
         if (!track.instrumental) {
             await setChoiceIfPresent(page, ["Lyrics language", "Lyrics Language"], normalizeLanguage(track.language));
             await setChoiceIfPresent(page, [
