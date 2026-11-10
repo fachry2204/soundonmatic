@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\Automation;
 
+use App\Enums\AutomationRunStatus;
+
 use App\Enums\Platform;
 use App\Exceptions\CredentialsNotConfiguredException;
 use App\Services\Automation\SessionManager;
@@ -210,6 +212,15 @@ final class ReleaseStatus extends Component
 
         if (! $queueActive && ! $releaseActive && ! $statusRunActive) {
             $this->bulkCheckRequested = false;
+            $latestStatusRun = AutomationRun::query()
+                ->where('summary_json->purpose', 'soundon_status_check')
+                ->latest()->first();
+            if (! $recoveredStatusRuns && ! $recoveredInterruptedChecks && $latestStatusRun?->status === AutomationRunStatus::Failed) {
+                $cause = trim((string) data_get($latestStatusRun->summary_json, 'error', ''));
+                $this->syncMessage = 'Pemeriksaan status gagal saat mengambil data Soundfresh. '.($cause !== '' ? 'Detail: '.$cause : 'Periksa log worker untuk penyebabnya.');
+
+                return;
+            }
             $this->syncMessage = $recoveredStatusRuns
                 ? 'Pemeriksaan yang macet telah dihentikan dengan aman. Status rilisan yang belum selesai ditandai gagal dan dapat diperiksa ulang.'
                 : ($recoveredInterruptedChecks

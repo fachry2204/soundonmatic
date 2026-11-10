@@ -27,6 +27,40 @@ final class ReleaseStatusTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_poll_surfaces_collection_failure_instead_of_reporting_success(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        AutomationRun::query()->create([
+            'status' => 'failed',
+            'finished_at' => now(),
+            'summary_json' => ['purpose' => 'soundon_status_check', 'error' => 'SOUNDFRESH_UI_CHANGED:language_selector'],
+        ]);
+        Livewire::actingAs($viewer)->test(ReleaseStatus::class)
+            ->set('bulkCheckRequested', true)
+            ->call('pollStatusUpdates')
+            ->assertSet('bulkCheckRequested', false)
+            ->assertSet('syncMessage', 'Pemeriksaan status gagal saat mengambil data Soundfresh. Detail: SOUNDFRESH_UI_CHANGED:language_selector');
+    }
+
+    public function test_old_collection_failure_does_not_override_a_new_successful_run(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        AutomationRun::query()->create([
+            'status' => 'failed', 'created_at' => now()->subMinute(), 'finished_at' => now()->subMinute(),
+            'summary_json' => ['purpose' => 'soundon_status_check', 'error' => 'Old failure'],
+        ]);
+        AutomationRun::query()->create([
+            'status' => 'completed', 'finished_at' => now(),
+            'summary_json' => ['purpose' => 'soundon_status_check'],
+        ]);
+        Livewire::actingAs($viewer)->test(ReleaseStatus::class)->call('pollStatusUpdates')
+            ->assertSet('syncMessage', 'Pemeriksaan rilisan Under Review dan Uploading telah selesai.');
+    }
+
     public function test_viewer_can_open_release_status_and_see_release(): void
     {
         $this->seed(AccessControlSeeder::class);
