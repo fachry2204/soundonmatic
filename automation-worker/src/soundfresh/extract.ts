@@ -56,10 +56,13 @@ const normalizeUpc = (value: string | undefined): string | null => {
 export async function extractTrackLyrics(track: Locator): Promise<string | null> {
     const toggle = track.getByRole('button', { name: /show\s*\/\s*hide\s+lyrics/i })
         .or(track.getByRole('link', { name: /show\s*\/\s*hide\s+lyrics/i })).first();
-    if (!await toggle.count()) return null;
+    if (!await toggle.count()) {
+        const field = track.locator('textarea[name*="lyric" i], textarea[id*="lyric" i]').first();
+        return await field.count() ? (await field.inputValue()).replace(/\r\n?/g, '\n').trim() || null : null;
+    }
     const wasExpanded = await toggle.getAttribute('aria-expanded') === 'true';
     if (!wasExpanded) await toggle.click();
-    await track.page().waitForTimeout(300);
+    await track.page().waitForTimeout(500);
     const result = await toggle.evaluate((button) => {
         const root = button.closest('.accordion-item');
         if (!root) return null;
@@ -68,7 +71,10 @@ export async function extractTrackLyrics(track: Locator): Promise<string | null>
         let content: Element | null = null;
         if (target) {
             const id = target.replace(/^.*#/, '');
-            content = Array.from(root.querySelectorAll('[id]')).find(el => el.id === id) ?? null;
+            const match = document.getElementById(id);
+            // An explicitly linked modal may live outside the accordion, but
+            // never read a target belonging to a different track.
+            if (match && (root.contains(match) || (!match.closest('.accordion-item') && match.matches('[role="dialog"], dialog, .modal')))) content = match;
         }
         if (!content) {
             let current: Element | null = button;
@@ -83,12 +89,51 @@ export async function extractTrackLyrics(track: Locator): Promise<string | null>
             }
         }
         if (!content) return null;
+        if (!(content as HTMLElement).getClientRects().length) return null;
         const input = content.matches('textarea') ? content : content.querySelector('textarea');
-        const value = input ? (input as HTMLTextAreaElement).value : (content as HTMLElement).innerText;
+        const textContent = content.querySelector('.modal-body, [class*="lyrics-content" i]') ?? content;
+        const value = input ? (input as HTMLTextAreaElement).value : (textContent as HTMLElement).innerText;
         return (value ?? '').replace(/\r\n?/g, '\n').trim();
     });
     if (result === null) throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_content');
+    const target = (await toggle.getAttribute('aria-controls')) || (await toggle.getAttribute('data-bs-target')) || (await toggle.getAttribute('data-target')) || '';
+    const targetId = target.replace(/^.*#/, '');
+    const dialog = track.page().locator('[role="dialog"]:visible, dialog:visible, .modal:visible')
+        .filter({ has: track.page().locator(`[id=${JSON.stringify(targetId)}]`) })
+        .or(targetId ? track.page().locator(`[id=${JSON.stringify(targetId)}]:is([role="dialog"],dialog,.modal):visible`) : track.page().locator(':not(*)'));
+    if (await dialog.count() === 1) {
+        const close = dialog.first().getByRole('button', { name: /^(?:close|tutup)$/i }).or(dialog.first().locator('[data-bs-dismiss="modal"], .btn-close')).first();
+        if (await close.count()) await close.click();
+        else await track.page().keyboard.press('Escape');
+        await dialog.first().waitFor({ state: 'hidden', timeout: 5_000 });
+    }
     return result || null;
+}
+
+/** Read lyrics from the visible Soundfresh track panels without downloading audio. */
+export async function extractReleaseLyrics(page: Page): Promise<Array<{ title: string; lyrics: string | null }>> {
+    const info = page.getByRole('button', { name: 'Track Information', exact: true });
+    if (await info.count() === 1 && await info.getAttribute('aria-expanded') !== 'true') await info.click();
+    const accordions = page.locator('h2.accordion-header button');
+    for (let index = 0; index < Math.min(await accordions.count(), 100); index++) {
+        const button = accordions.nth(index);
+        if (await button.getAttribute('aria-expanded') !== 'true') await button.click();
+    }
+    const tracks = page.locator('.accordion-item');
+    const result: Array<{ title: string; lyrics: string | null }> = [];
+    for (let index = 0; index < await tracks.count(); index++) {
+        const track = tracks.nth(index);
+        const title = await track.locator('tr').evaluateAll(rows => {
+            for (const row of rows) {
+                const cells = row.querySelectorAll(':scope > td');
+                if (cells.length >= 2 && /^title$/i.test(cells[0]?.textContent?.trim() ?? '')) return cells[1]?.textContent?.trim() ?? '';
+            }
+            return '';
+        });
+        if (!title) throw new Error(`SOUNDFRESH_UI_CHANGED:lyrics_track_title:${index + 1}`);
+        result.push({ title, lyrics: await extractTrackLyrics(track) });
+    }
+    return result;
 }
 
 export async function extractRelease(

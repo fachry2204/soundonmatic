@@ -124,17 +124,47 @@ async function selectStatus(page, label) {
     return true;
 }
 async function search(page, title) {
-    let input = page.getByPlaceholder(/search|cari/i).filter({ visible: true }).first();
+    let input = page.getByPlaceholder(/search|cari|find release/i).filter({ visible: true }).first();
     if (!await input.count())
         input = page.getByRole("textbox").filter({ visible: true }).first();
     if (!await input.count())
-        return;
+        throw new Error("SOUNDON_SEARCH_UNCONFIRMED:search_input_missing");
+    const previousQuery = await input.inputValue();
+    const emptyIndicator = page.locator('.semi-empty, .ant-empty, [role="status"], td, [class*="empty" i]')
+        .filter({ visible: true, hasText: /\b(no (?:data|results?|releases?|records?)|nothing found|no matching releases?)\b/i });
+    const oldEmpty = await emptyIndicator.count() > 0;
     await input.fill(title);
     await input.press("Enter").catch(() => undefined);
-    const exactTitle = page.getByText(title, { exact: true }).filter({ visible: true }).first();
-    await exactTitle.waitFor({ state: "visible", timeout: 1_200 }).catch(() => undefined);
-    // SoundOn applies an additional debounce after the input value changes.
-    await page.waitForTimeout(300);
+    // A fast read can observe the previous search results while SoundOn is
+    // debouncing or fetching. Only trust a matching result or an explicit
+    // empty state, never the mere absence of a row after a fixed delay.
+    await page.waitForTimeout(600);
+    try {
+        await page.waitForFunction(({ query, acceptEmpty }) => {
+            const visible = (element) => {
+                const node = element;
+                return !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
+            };
+            const busy = Array.from(document.querySelectorAll('[aria-busy="true"], [role="progressbar"], .semi-spin-spinning, .ant-spin-spinning'))
+                .some(visible);
+            if (busy)
+                return false;
+            const clean = (value) => value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+            const wanted = clean(query);
+            const rows = Array.from(document.querySelectorAll('tr, [role="row"]')).filter(visible);
+            if (rows.some(row => {
+                const text = row.innerText || '';
+                const lines = text.split(/\r?\n/).map(clean);
+                return lines.includes(wanted) || (` ${clean(text)} `).includes(` ${wanted} `);
+            }))
+                return true;
+            return acceptEmpty && Array.from(document.querySelectorAll('.semi-empty, .ant-empty, [role="status"], td, [class*="empty" i]'))
+                .filter(visible).some(element => /\b(no (?:data|results?|releases?|records?)|nothing found|no matching releases?)\b/i.test(element.innerText || ''));
+        }, { query: title, acceptEmpty: !oldEmpty || normalize(previousQuery) === normalize(title) }, { timeout: 15_000 });
+    }
+    catch {
+        throw new Error(`SOUNDON_SEARCH_UNCONFIRMED:SoundOn belum menampilkan hasil atau informasi kosong untuk pencarian "${title}"`);
+    }
 }
 async function nextPage(page) {
     const candidates = page.locator([
@@ -286,11 +316,7 @@ export async function findReleaseStatuses(page, lookups, strictArtist = false) {
         }
         return false;
     };
-    const searchTerms = (lookup) => unique([
-        lookup.title.trim(),
-        `${lookup.title} ${lookup.artist}`.trim(),
-        lookup.artist.trim(),
-    ].filter(Boolean));
+    const searchTerms = (lookup) => [lookup.title.trim()].filter(Boolean);
     // Some SoundOn layouts show all releases in one view and expose status only
     // as a row badge (without tabs). Inspect the already-rendered rows before
     // touching the search input; filtering can temporarily detach those rows.
@@ -333,10 +359,6 @@ export async function findLastUpdatedDates(page, lookups) {
             continue;
         await search(page, item.title);
         let candidate = await candidateFor(page, item.title, item.artist, true);
-        if (!candidate) {
-            await search(page, item.title + " " + item.artist);
-            candidate = await candidateFor(page, item.title, item.artist, true);
-        }
         // Artist labels can be rendered differently between Soundfresh and
         // SoundOn. A unique exact-title match is a safe fallback; ambiguous
         // same-title releases remain unmatched rather than guessing.

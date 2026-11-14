@@ -12,6 +12,17 @@ describe('SoundOn optional two-step setup', () => {
             expect(await page.getByRole('dialog').count()).toBe(0);
         } finally { await browser.close(); }
     }, 10000);
+    it('clicks Skip on an optional two-step setup prompt', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<div role="dialog"><h2>Enable 2-step verification</h2><button onclick="this.parentElement.remove()">Skip</button></div>');
+            expect(await dismissSoundOnTwoStepPrompt(page)).toBe(true);
+            expect(await page.getByRole('dialog').count()).toBe(0);
+            await page.setContent('<div role="dialog"><h2>2-step verification</h2><input autocomplete="one-time-code"><button>Skip</button></div>');
+            expect(await dismissSoundOnTwoStepPrompt(page)).toBe(false);
+        } finally { await browser.close(); }
+    }, 10000);
     it('does not dismiss a real verification-code challenge or an unrelated dialog', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

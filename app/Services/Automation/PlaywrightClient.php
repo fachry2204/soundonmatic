@@ -83,6 +83,11 @@ final class PlaywrightClient
         ]);
     }
 
+    public function extractLyrics(string $url, ?array $sessionState = null): array
+    {
+        return (array) ($this->post('/v1/soundfresh/releases/lyrics', ['release_url' => $url, 'session_state' => $sessionState])['tracks'] ?? []);
+    }
+
     public function extract(string $jobId, string $url, ?array $sessionState = null): array
     {
         return $this->post('/v1/soundfresh/releases/extract', ['job_id' => $jobId, 'release_url' => $url, 'session_state' => $sessionState]);
@@ -190,7 +195,24 @@ final class PlaywrightClient
         $response = $this->signed($timestamp, $nonce, $signature)->withBody($json, 'application/json')->post($path);
         $this->throwWorkerError($response);
 
-        return (array) $response->json('data', []);
+        $data = (array) $response->json('data', []);
+        // Persist cookies refreshed by successful platform operations. A
+        // concurrent request based on an older snapshot must never overwrite a
+        // newer login or another refresh; compare under a database row lock.
+        $platform = str_starts_with($path, '/v1/soundfresh/') ? 'soundfresh'
+            : (str_starts_with($path, '/v1/soundon/') ? 'soundon' : null);
+        if ($platform && is_array($payload['session_state'] ?? null)
+            && is_array($data['session_state'] ?? null)) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($payload, $data, $platform): void {
+                $account = \App\Models\AutomationAccount::query()->where('platform', $platform)->lockForUpdate()->first();
+                if ($account && $account->status === 'active' && $account->session_state_encrypted == $payload['session_state']) {
+                    $account->update(['session_state_encrypted' => $data['session_state'], 'last_authenticated_at' => now()]);
+                }
+            });
+            unset($data['session_state']);
+        }
+
+        return $data;
     }
 
     private function get(string $path): array

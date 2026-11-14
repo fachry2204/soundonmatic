@@ -9,8 +9,8 @@ export async function dismissSoundOnTwoStepPrompt(page) {
             || /enter (?:the |your )?(?:(?:\d+[- ]?digit|verification|security) )?code|one.time password|captcha/i.test(text)
             || await dialog.locator('input[autocomplete="one-time-code"]').count())
             continue;
-        const skip = dialog.getByRole('button', { name: /^not\s*now$/i })
-            .or(dialog.getByRole('link', { name: /^not\s*now$/i })).filter({ visible: true }).first();
+        const skip = dialog.getByRole('button', { name: /^(?:not\s*now|skip)$/i })
+            .or(dialog.getByRole('link', { name: /^(?:not\s*now|skip)$/i })).filter({ visible: true }).first();
         if (await skip.count()) {
             await skip.click();
             return true;

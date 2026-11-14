@@ -22,7 +22,8 @@ export async function context(platform) {
 export async function sessionContext(state, options = {}) {
     const browser = await chromium.launch({
         ...launchOptions(),
-        ...(options.headless === undefined ? {} : { headless: options.headless }),
+        // Automated work must not expose the platform login pages on desktop.
+        headless: options.headless ?? true,
     });
     try {
         const browserContext = await browser.newContext({
@@ -33,7 +34,7 @@ export async function sessionContext(state, options = {}) {
         browserContext.on('page', page => {
             const prompt = page.locator('[role="dialog"],[aria-modal="true"],dialog,.semi-modal,.so-form-modal-dialog')
                 .filter({ hasText: /(?:two|2)[-\s]*(?:step|factor)|2fa/i })
-                .filter({ has: page.getByText(/^not\s*now$/i) });
+                .filter({ has: page.getByText(/^(?:not\s*now|skip)$/i) });
             void page.addLocatorHandler(prompt.first(), async () => {
                 const hostname = new URL(page.url()).hostname.toLowerCase();
                 if (hostname === 'soundon.global' || hostname.endsWith('.soundon.global'))

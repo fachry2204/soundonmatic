@@ -8,6 +8,7 @@ use App\Livewire\Automation\AccountSessions;
 use App\Models\AutomationAccount;
 use App\Models\User;
 use App\Services\Automation\SessionManager;
+use App\Services\Automation\PlaywrightClient;
 use Database\Seeders\AccessControlSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -74,5 +75,20 @@ final class PlatformSessionReuseTest extends TestCase
         Livewire::actingAs($admin)->test(AccountSessions::class)->set('emails.soundon', 'artist@example.com')
             ->set('passwords.soundon', '')->call('saveCredentials', 'soundon')->assertHasNoErrors();
         $this->assertSame('old', $account->fresh()->session_state_encrypted['cookies'][0]['name']);
+    }
+
+    public function test_soundfresh_success_refreshes_cookies_without_overwriting_newer_session(): void
+    {
+        $old = ['cookies' => [['name' => 'old', 'value' => 'secret']]];
+        $new = ['cookies' => [['name' => 'new', 'value' => 'secret']]];
+        $account = AutomationAccount::create(['platform' => 'soundfresh', 'name' => 'Soundfresh', 'status' => 'active',
+            'session_state_encrypted' => $old, 'last_authenticated_at' => now()->subHour()]);
+        Http::fake(['*/v1/soundfresh/pending' => Http::response(['success' => true, 'data' => ['items' => [], 'session_state' => $new]])]);
+        app(PlaywrightClient::class)->pending(null, $old);
+        $this->assertSame($new, $account->fresh()->session_state_encrypted);
+        $newer = ['cookies' => [['name' => 'newer', 'value' => 'secret']]];
+        $account->update(['session_state_encrypted' => $newer]);
+        app(PlaywrightClient::class)->pending(null, $old);
+        $this->assertSame($newer, $account->fresh()->session_state_encrypted);
     }
 }

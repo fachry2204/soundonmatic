@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { authSelectors } from "./selectors/auth.js";
 import { assertDraftOnly } from "./guards/draft-only.js";
 import { loadRegistry } from "./selectors/registry.js";
-import { extractRelease } from "./soundfresh/extract.js";
+import { extractRelease, extractReleaseLyrics } from "./soundfresh/extract.js";
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
 import { reserveDraftCreation } from './soundon/draft-creation-guard.js';
@@ -124,12 +124,9 @@ app.post("/v1/sessions/login", async (req, reply) => {
         return reply
             .code(422)
             .send({ success: false, error: "INVALID_LOGIN_REQUEST" });
-    // Show a real browser for OTP/CAPTCHA on desktop so the operator can
-    // complete the challenge in the same context whose cookies are persisted.
-    // Linux/server deployments remain headless unless explicitly configured.
-    const manualHeadful = process.env.BROWSER_MANUAL_LOGIN_HEADFUL === "true"
-        || (process.env.BROWSER_MANUAL_LOGIN_HEADFUL !== "false" && process.platform !== "linux");
-    const browser = await sessionContext(undefined, { headless: !manualHeadful });
+    // Normal authentication is background-only. A genuine OTP/CAPTCHA is
+    // reported to the operator instead of displaying a surprise login window.
+    const browser = await sessionContext(undefined, { headless: true });
     try {
         const page = await browser.newPage();
         await page.goto(loginUrl(body.platform), {
@@ -186,35 +183,13 @@ app.post("/v1/sessions/login", async (req, reply) => {
             ? authSelectors.soundfresh
             : authSelectors.soundon).authenticatedUrl.test(new URL(page.url()).pathname);
         if (challenge && !authenticatedRoute) {
-            const deadline = Date.now() + 180_000;
-            while (Date.now() < deadline) {
-                await page.waitForTimeout(500);
-                if (body.platform === 'soundon')
-                    await dismissSoundOnTwoStepPrompt(page);
-                const path = new URL(page.url()).pathname;
-                const formStillVisible = await passwordInput.isVisible().catch(() => false);
-                challenge = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
-                const nowAuthenticated = (body.platform === "soundfresh"
-                    ? authSelectors.soundfresh
-                    : authSelectors.soundon).authenticatedUrl.test(path);
-                if (!formStillVisible && (nowAuthenticated || (!challenge && !/login|sign-in/i.test(path))))
-                    break;
-            }
-            const path = new URL(page.url()).pathname;
-            const formStillVisible = await passwordInput.isVisible().catch(() => false);
-            challenge = await page.getByText(authSelectors.challenge).first().isVisible().catch(() => false);
-            const nowAuthenticated = (body.platform === "soundfresh"
-                ? authSelectors.soundfresh
-                : authSelectors.soundon).authenticatedUrl.test(path);
-            if (formStillVisible || (!nowAuthenticated && (challenge || /login|sign-in/i.test(path)))) {
-                return {
-                    success: true,
-                    data: {
-                        manual_auth_required: true,
-                        screenshot: await screenshot(page, "manual-auth"),
-                    },
-                };
-            }
+            return {
+                success: true,
+                data: {
+                    manual_auth_required: true,
+                    screenshot: await screenshot(page, "manual-auth"),
+                },
+            };
         }
         const invalidCredentials = await page
             .getByText(authSelectors.invalidCredentials)
@@ -326,7 +301,7 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
                     break;
                 }
             }
-            return { success: true, data: { matches } };
+            return { success: true, data: { matches, session_state: await browser.storageState({ indexedDB: true }) } };
         }
         const requestedMax = Number(body?.options?.max_items);
         const max = Number.isFinite(requestedMax) && requestedMax > 0
@@ -490,7 +465,32 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             pagesRead,
             collectedItems: items.length,
         }, "Soundfresh release collection completed");
-        return { success: true, data: { items, has_more: false } };
+        return { success: true, data: { items, has_more: false, session_state: await browser.storageState({ indexedDB: true }) } };
+    }
+    finally {
+        await closeContext(browser);
+    }
+});
+app.post("/v1/soundfresh/releases/lyrics", async (req, reply) => {
+    const body = req.body;
+    let url;
+    try {
+        url = new URL(String(body.release_url));
+    }
+    catch {
+        return reply.code(422).send({ success: false, error: 'SOUNDFRESH_RELEASE_URL_REQUIRED' });
+    }
+    if (url.origin !== new URL(baseUrl('soundfresh')).origin)
+        return reply.code(422).send({ success: false, error: 'SOUNDFRESH_RELEASE_URL_INVALID' });
+    const browser = await sessionContext(body.session_state);
+    try {
+        const page = await browser.newPage();
+        await page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+        if (/\/login/i.test(page.url()))
+            return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
+        await ensureSoundfreshEnglish(page);
+        const tracks = await extractReleaseLyrics(page);
+        return { success: true, data: { tracks, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
         await closeContext(browser);
@@ -520,7 +520,7 @@ app.post("/v1/soundfresh/releases/extract", async (req, reply) => {
                 cancelled: false,
                 updatedAt: new Date().toISOString(),
             });
-            return { success: true, data: metadata };
+            return { success: true, data: { ...metadata, session_state: await browser.storageState({ indexedDB: true }) } };
         }
         catch (error) {
             jobs.set(id, {
@@ -590,7 +590,7 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
             if (duplicate) {
                 return {
                     success: true,
-                    data: { ...duplicate, already_exists: true },
+                    data: { ...duplicate, already_exists: true, session_state: await browser.storageState({ indexedDB: true }) },
                 };
             }
         }
@@ -629,12 +629,13 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
                     void page.close().catch(() => undefined);
                 }, watchdogMs);
             });
+            const result = await Promise.race([operation, deadline]).finally(() => {
+                if (watchdog)
+                    clearTimeout(watchdog);
+            });
             return {
                 success: true,
-                data: await Promise.race([operation, deadline]).finally(() => {
-                    if (watchdog)
-                        clearTimeout(watchdog);
-                }),
+                data: { ...result, session_state: await browser.storageState({ indexedDB: true }) },
             };
         }
         catch (error) {
@@ -674,9 +675,9 @@ app.post("/v1/soundon/drafts/find", async (req, reply) => {
             }
             const match = await findDraft(page, body.title, body.artist);
             if (match)
-                return { success: true, data: match };
+                return { success: true, data: { ...match, session_state: await browser.storageState({ indexedDB: true }) } };
         }
-        return { success: true, data: { found: false } };
+        return { success: true, data: { found: false, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
         await closeContext(browser);
@@ -694,7 +695,7 @@ app.post("/v1/soundon/drafts/find-many", async (req, reply) => {
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
             return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
-        return { success: true, data: { matches: await findDrafts(page, lookups) } };
+        return { success: true, data: { matches: await findDrafts(page, lookups), session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
         await closeContext(browser);
@@ -714,7 +715,7 @@ app.post("/v1/soundon/reviews", async (req, reply) => {
         if (/login|sign-in/i.test(page.url()))
             return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
         const matches = await findLastUpdatedDates(page, lookups);
-        return { success: true, data: { matches } };
+        return { success: true, data: { matches, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     catch (error) {
         const code = error instanceof Error ? error.message : "SOUNDON_REVIEW_FETCH_FAILED";
@@ -746,7 +747,7 @@ app.post("/v1/soundon/releases/statuses", async (req, reply) => {
             placeholders: await page.locator("input:visible").evaluateAll((inputs) => inputs.map((input) => input.getAttribute("placeholder") || input.getAttribute("aria-label") || input.getAttribute("type") || "")),
             sampleRows: (await page.locator('tr:visible, [role="row"]:visible').allInnerTexts().catch(() => [])).slice(0, 5),
         }, "SoundOn release status page prepared");
-        return { success: true, data: { matches: await findReleaseStatuses(page, lookups, body.strict_artist === true) } };
+        return { success: true, data: { matches: await findReleaseStatuses(page, lookups, body.strict_artist === true), session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
         activeStatusContexts.delete(browser);

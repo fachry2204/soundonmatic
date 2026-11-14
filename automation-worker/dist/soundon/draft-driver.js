@@ -153,8 +153,6 @@ async function createKnownSoundOnDraft(page, metadata) {
     await setChoiceField(page, "Genre", normalizeGenre(track.genre ?? metadata.genre), true);
     await setChoiceField(page, "Subgenre", normalizeSubgenre(track.subgenre ?? metadata.subgenre), true);
     await setScopedRadio(page, "Instrumental", track.instrumental ? "Yes" : "No");
-    if (!track.instrumental && track.lyrics)
-        await setTextField(page, "Lyrics", String(track.lyrics));
     let lyricsLanguageSet = track.instrumental
         ? true
         : await setChoiceIfPresent(page, ["Lyrics language", "Lyrics Language"], normalizeLanguage(track.language));
@@ -203,6 +201,8 @@ async function createKnownSoundOnDraft(page, metadata) {
             throw new Error("SOUNDON_UI_CHANGED:field:Original release date");
     }
     let releaseDateSet = await setTextIfPresent(page, ["Release date", "Planned release date"], normalizeDate(metadata.release_date));
+    if (!track.instrumental && track.lyrics)
+        await setTextField(page, "Lyrics", String(track.lyrics));
     const next = page.getByRole("button", { name: "Next", exact: true });
     if ((await next.count()) === 1) {
         await resilientClick(next);
@@ -437,8 +437,6 @@ async function createKnownSoundOnAlbumDraft(page, metadata, tracks) {
         await setChoiceField(page, "Genre", normalizeGenre(track.genre ?? metadata.genre), true);
         await setChoiceField(page, "Subgenre", normalizeSubgenre(track.subgenre ?? metadata.subgenre), true);
         await setScopedRadio(page, "Instrumental", track.instrumental ? "Yes" : "No");
-        if (!track.instrumental && track.lyrics)
-            await setTextField(page, "Lyrics", String(track.lyrics));
         if (!track.instrumental) {
             await setChoiceIfPresent(page, ["Lyrics language", "Lyrics Language"], normalizeLanguage(track.language));
             await setChoiceIfPresent(page, [
@@ -469,6 +467,8 @@ async function createKnownSoundOnAlbumDraft(page, metadata, tracks) {
         await setRadioIfPresent(page, ["This track contains licensed content"], "No");
         if (hasUpc && track.isrc)
             await setTextField(page, "ISRC", String(track.isrc), true);
+        if (!track.instrumental && track.lyrics)
+            await setTextField(page, "Lyrics", String(track.lyrics));
     }
     stage('release_distribution');
     await advanceWizardStep(page);

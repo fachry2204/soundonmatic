@@ -92,6 +92,25 @@ final class ProcessReleaseJob implements ShouldQueue
             $worker->prepareAttempt($job->id);
             $this->progress($job, 8, 'Memulai rilisan dan menyiapkan sesi platform');
             $metadata = $this->reusableMetadata($job);
+            if ($metadata !== null && ! $job->soundon_draft_id && ! ($metadata['_lyrics_refresh_checked'] ?? false) && collect($metadata['tracks'])->contains(
+                fn ($track): bool => ! ($track['instrumental'] ?? false) && blank($track['lyrics'] ?? null)
+            )) {
+                $this->progress($job, 12, 'Memperbarui lirik track dari Soundfresh');
+                $soundfresh = $sessions->ensure(Platform::Soundfresh);
+                $lyricsTracks = $worker->extractLyrics($job->soundfresh_release_url, $soundfresh->session_state_encrypted);
+                if (count($lyricsTracks) !== count($metadata['tracks'])) {
+                    throw new \RuntimeException('SOUNDFRESH_LYRICS_TRACK_MISMATCH: jumlah track berubah; lirik tidak disalin.');
+                }
+                foreach ($metadata['tracks'] as $index => &$track) {
+                    if (mb_strtolower(trim((string) ($track['title'] ?? ''))) !== mb_strtolower(trim((string) ($lyricsTracks[$index]['title'] ?? '')))) {
+                        throw new \RuntimeException('SOUNDFRESH_LYRICS_TRACK_MISMATCH: judul atau urutan track berubah; lirik tidak disalin.');
+                    }
+                    if (blank($track['lyrics'] ?? null)) $track['lyrics'] = $lyricsTracks[$index]['lyrics'] ?? null;
+                }
+                unset($track);
+                $metadata['_lyrics_refresh_checked'] = true;
+                $job->update(['metadata_snapshot_json' => $metadata]);
+            }
             if ($metadata === null) {
                 $this->progress($job, 12, 'Membaca metadata rilisan dari Soundfresh');
                 $soundfresh = $sessions->ensure(Platform::Soundfresh);

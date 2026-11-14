@@ -26,6 +26,23 @@ describe("detectReleaseStatus", () => {
 });
 
 describe("findReleaseStatuses", () => {
+    it("waits for delayed SoundOn search results and recognizes the delivered release", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`
+                <input placeholder="Find release by album name or artist name">
+                <table><thead><tr><th>Title</th><th>Release Status</th></tr></thead><tbody></tbody></table>
+                <script>
+                document.querySelector('input').addEventListener('input', () => {
+                    setTimeout(() => { document.querySelector('tbody').innerHTML = '<tr><td>Broken Porch Wood<br>Rankin Dale Whitsett</td><td>Delivered</td></tr>'; }, 2500);
+                });
+                </script>`);
+            const matches = await findReleaseStatuses(page, [{ key: '4166', title: 'Broken Porch Wood', artist: 'Rankin Dale Whitsett' }]);
+            expect(matches['4166']?.status).toBe('delivery');
+        } finally { await browser.close(); }
+    }, 20000);
+
     it("finds a unique title when SoundOn renders nested row and card wrappers", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
