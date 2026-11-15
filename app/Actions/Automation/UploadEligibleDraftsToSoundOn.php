@@ -9,6 +9,7 @@ use App\Enums\ReleaseJobStatus;
 use App\Jobs\ProcessReleaseJob;
 use App\Models\ReleaseJob;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Bus;
 
 final class UploadEligibleDraftsToSoundOn
 {
@@ -32,8 +33,9 @@ final class UploadEligibleDraftsToSoundOn
                     'DUPLICATE_CHECK_PENDING', 'DUPLICATE_CHECK_FAILED', 'DUPLICATE_RELEASE_FOUND',
                 ]);
             })
-            ->orderBy('metadata_snapshot_json->release_date')
-            ->get();
+            ->get()
+            ->sortBy(fn (ReleaseJob $job): string => ((string) data_get($job->metadata_snapshot_json, 'uploaded_at', null) ?: '9999') . sprintf(':%010d', (int) data_get($job->metadata_snapshot_json, 'pending_order', 9999999999)))
+            ->values();
 
         $skipped = $requestedIds->count() - $eligible->count();
 
@@ -62,9 +64,9 @@ final class UploadEligibleDraftsToSoundOn
             }
         });
 
-        foreach ($eligible as $job) {
-            ProcessReleaseJob::dispatch($job->id);
-        }
+        // A chain is necessary: multiple queue workers could otherwise start a
+        // newer release before the older one's SoundOn upload has finished.
+        if ($eligible->isNotEmpty()) Bus::chain($eligible->map(fn (ReleaseJob $job) => new ProcessReleaseJob((string) $job->id))->all())->dispatch();
 
         return ['queued' => $eligible->count(), 'skipped' => $skipped];
     }

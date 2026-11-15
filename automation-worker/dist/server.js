@@ -6,6 +6,7 @@ import { authSelectors } from "./selectors/auth.js";
 import { assertDraftOnly } from "./guards/draft-only.js";
 import { loadRegistry } from "./selectors/registry.js";
 import { extractRelease, extractReleaseLyrics } from "./soundfresh/extract.js";
+import { oldestUploadedFirst, uploadedAtIso } from './soundfresh/pending-order.js';
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
 import { reserveDraftCreation } from './soundon/draft-creation-guard.js';
@@ -310,7 +311,7 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
         const items = [];
         const seen = new Set();
         let pagesRead = 0;
-        while (items.length < max) {
+        while (requestedStatus === 'pending' || items.length < max) {
             // A status tab may expose 100 rows per page but still contain more
             // releases.  Keep a defensive ceiling only to prevent a broken
             // DataTables control from looping forever; it is not a release
@@ -327,6 +328,9 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             // The list label is "Release Date", while the release detail form
             // calls the same value "Planned Release Date".
             const releaseDateIndex = headers.findIndex((value) => /(?:planned\s*)?release\s*date/.test(value));
+            const uploadedIndex = headers.findIndex((value) => /\b(?:upload(?:ed)?\s*(?:at|add|date)|date\s*uploaded|uploaded)\b/i.test(value));
+            if (requestedStatus === 'pending' && uploadedIndex < 0)
+                throw new Error('SOUNDFRESH_UI_CHANGED:uploaded_date_column: Kolom Uploaded At/Add tidak ditemukan; urutan upload tidak dapat dipastikan.');
             const rows = await table.locator("tbody tr").all();
             for (const row of rows) {
                 const rawCells = await row.locator("td").allInnerTexts();
@@ -374,8 +378,9 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
                     ? (cells[releaseDateIndex] ?? "").trim() || null
                     : null;
                 seen.add(releaseId);
-                items.push({ release_id: releaseId, title, primary_artist: primaryArtist, detail_url: detailUrl, track_count: trackCount, workflow_status: workflowStatus, release_date: releaseDate });
-                if (items.length >= max)
+                const uploadedAt = uploadedIndex >= 0 ? uploadedAtIso(cells[uploadedIndex] ?? '') : null;
+                items.push({ release_id: releaseId, title, primary_artist: primaryArtist, detail_url: detailUrl, track_count: trackCount, workflow_status: workflowStatus, release_date: releaseDate, uploaded_at: uploadedAt });
+                if (requestedStatus !== 'pending' && items.length >= max)
                     break;
             }
             const firstRowBefore = await table.locator("tbody tr").first().innerText().catch(() => "");
@@ -465,7 +470,8 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             pagesRead,
             collectedItems: items.length,
         }, "Soundfresh release collection completed");
-        return { success: true, data: { items, has_more: false, session_state: await browser.storageState({ indexedDB: true }) } };
+        const orderedItems = requestedStatus === 'pending' ? oldestUploadedFirst(items).slice(0, max) : items;
+        return { success: true, data: { items: orderedItems, has_more: false, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
         await closeContext(browser);

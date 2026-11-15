@@ -10,6 +10,7 @@ use App\Jobs\ProcessReleaseJob;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Bus;
 
 final class ResumeAutomationRun
 {
@@ -42,7 +43,7 @@ final class ResumeAutomationRun
                 $jobsQuery->whereIn('id', $selectedJobIds);
             }
 
-            $jobs = $jobsQuery->get();
+            $jobs = $jobsQuery->get()->sortBy(fn (ReleaseJob $job): string => ((string) data_get($job->metadata_snapshot_json, 'uploaded_at', null) ?: '9999') . sprintf(':%010d', (int) data_get($job->metadata_snapshot_json, 'pending_order', 9999999999)))->values();
 
             $run->releaseJobs()
                 ->whereIn('id', $jobs->pluck('id'))
@@ -55,8 +56,6 @@ final class ResumeAutomationRun
             return $jobs->pluck('id')->all();
         });
 
-        foreach ($jobIds as $jobId) {
-            ProcessReleaseJob::dispatch($jobId);
-        }
+        if ($jobIds !== []) Bus::chain(collect($jobIds)->map(fn ($id) => new ProcessReleaseJob((string) $id))->all())->dispatch();
     }
 }

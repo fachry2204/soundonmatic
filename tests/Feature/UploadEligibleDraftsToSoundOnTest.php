@@ -18,6 +18,25 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_upload_chain_prioritizes_oldest_uploaded_date_not_release_date(): void
+    {
+        Queue::fake();
+        $run = AutomationRun::create(['status' => 'completed']);
+        $make = fn (string $id, ?string $uploaded, string $release) => ReleaseJob::create([
+            'automation_run_id' => $run->id, 'soundfresh_release_id' => $id,
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/'.$id,
+            'idempotency_key' => 'soundfresh:'.$id.':soundon', 'status' => 'completed',
+            'metadata_snapshot_json' => ['uploaded_at' => $uploaded, 'release_date' => $release],
+        ]);
+        $new = $make('new', '2026-11-13T00:00:00.000Z', '2026-11-20');
+        $old = $make('old', '2026-11-09T00:00:00.000Z', '2026-11-28');
+        $unknown = $make('unknown', null, '2026-11-19');
+        app(UploadEligibleDraftsToSoundOn::class)->handle([$new->id, $unknown->id, $old->id]);
+        $first = Queue::pushed(ProcessReleaseJob::class)->first();
+        $this->assertSame((string) $old->id, $first->releaseJobId);
+        $this->assertSame([(string) $new->id, (string) $unknown->id], array_map(fn ($serialized) => unserialize($serialized)->releaseJobId, $first->chained));
+    }
+
     public function test_only_selected_eligible_releases_are_queued(): void
     {
         Queue::fake();

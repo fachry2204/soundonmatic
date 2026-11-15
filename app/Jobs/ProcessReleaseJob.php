@@ -115,6 +115,9 @@ final class ProcessReleaseJob implements ShouldQueue
                 $this->progress($job, 12, 'Membaca metadata rilisan dari Soundfresh');
                 $soundfresh = $sessions->ensure(Platform::Soundfresh);
                 $metadata = $worker->extract($job->id, $job->soundfresh_release_url, $soundfresh->session_state_encrypted);
+                foreach (['uploaded_at', 'pending_order'] as $key) {
+                    if (array_key_exists($key, $job->metadata_snapshot_json ?? [])) $metadata[$key] = $job->metadata_snapshot_json[$key];
+                }
                 $metadata = $fieldSynchronizer->synchronize($metadata);
                 $metadata = $mapper->mapAvailable($metadata);
                 $job->update(['metadata_snapshot_json' => $metadata, 'release_title' => $metadata['title'] ?? $job->release_title, 'artist_name' => $metadata['primary_artist'] ?? $job->artist_name, 'release_type' => $metadata['release_type'] ?? null, 'track_count' => count($metadata['tracks'] ?? []), 'checkpoint' => ReleaseCheckpoint::MetadataExtracted]);

@@ -118,7 +118,7 @@ final class StartAutomationRun
             ],
         ]);
 
-        foreach ($items as $item) {
+        foreach ($items as $position => $item) {
             $key = 'soundfresh:'.$item['release_id'].':soundon';
 
             if (ReleaseJob::where('idempotency_key', $key)->exists()) {
@@ -142,6 +142,7 @@ final class StartAutomationRun
                 'release_title' => $item['title'] ?? null,
                 'artist_name' => $item['primary_artist'] ?? null,
                 'track_count' => max(1, (int) ($item['track_count'] ?? 1)),
+                'metadata_snapshot_json' => ['uploaded_at' => $item['uploaded_at'] ?? null, 'pending_order' => $position],
                 'status' => $isBlocked ? ReleaseJobStatus::NeedsAttention : ReleaseJobStatus::Queued,
                 'checkpoint' => ReleaseCheckpoint::Discovered,
                 'progress_percent' => 5,
