@@ -91,8 +91,7 @@ final class StartAutomationRun
 
         // Duplicate detection is the first gate after collecting Pending. A
         // release may only become selectable after title + primary artist have
-        // been checked against every Soundfresh release, SoundOn All releases,
-        // and SoundOn Drafts.
+        // been checked against SoundOn Drafts.
         $releaseIds = collect($items)->pluck('release_id')->map('strval')->all();
         $draftMatches = ReleaseJob::query()
             ->whereIn('soundfresh_release_id', $releaseIds ?: [''])

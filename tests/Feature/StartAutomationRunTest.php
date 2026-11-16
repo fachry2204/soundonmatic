@@ -237,7 +237,7 @@ class StartAutomationRunTest extends TestCase
         Http::assertNotSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundfresh/releases/review'));
     }
 
-    public function test_matching_title_and_artist_in_remote_sources_blocks_upload_with_clear_reason(): void
+    public function test_duplicate_check_uses_only_soundon_drafts(): void
     {
         Queue::fake();
         config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);
@@ -291,8 +291,9 @@ class StartAutomationRunTest extends TestCase
         $job->refresh();
 
         $this->assertSame('needs_attention', $job->status->value);
-        $this->assertStringContainsString('Soundfresh tab under review (ID 200)', $job->error_message);
-        $this->assertStringContainsString('SoundOn All releases (status live)', $job->error_message);
         $this->assertStringContainsString('SoundOn Drafts', $job->error_message);
+        Http::assertNotSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundon/releases/statuses'));
+        Http::assertNotSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundfresh/pending') && data_get($request->data(), 'options.duplicate_lookups'));
+        Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/v1/soundon/drafts/find-many'));
     }
 }

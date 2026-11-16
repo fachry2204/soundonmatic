@@ -210,9 +210,12 @@ async function nextPage(page: Page): Promise<boolean> {
 
     const before = await page.locator('tr:visible, [role="row"]:visible, article:visible, li:visible, [class*="card" i]:visible').allInnerTexts().then((rows) => rows.slice(0, 8).join("\n")).catch(() => "");
     await next.click({ timeout: 5_000 });
-    await page.waitForTimeout(700);
-    const after = await page.locator('tr:visible, [role="row"]:visible, article:visible, li:visible, [class*="card" i]:visible').allInnerTexts().then((rows) => rows.slice(0, 8).join("\n")).catch(() => "");
-    return normalize(after) !== normalize(before);
+    for (let attempt = 0; attempt < 40; attempt++) {
+        await page.waitForTimeout(200);
+        const after = await page.locator('tr:visible, [role="row"]:visible, article:visible, li:visible, [class*="card" i]:visible').allInnerTexts().then((rows) => rows.slice(0, 8).join("\n")).catch(() => "");
+        if (normalize(after) !== normalize(before)) return true;
+    }
+    throw new Error('SOUNDON_SEARCH_UNCONFIRMED:Halaman hasil SoundOn tidak berubah setelah tombol berikutnya ditekan.');
 }
 
 async function candidateFor(page: Page, title: string, artist: string, strictArtist = false): Promise<Locator | null> {
@@ -244,7 +247,9 @@ async function candidateFor(page: Page, title: string, artist: string, strictArt
             // innerText rather than newlines. Match the title as a bounded
             // phrase across the row text as well as as a standalone line.
             const rowText = ` ${comparableBrowser(raw)} `;
-            if (!lines.includes(wanted.title) && !rowText.includes(` ${wanted.title} `)) continue;
+            const cells = Array.from(element.querySelectorAll(':scope > td, :scope > [role="cell"]'));
+            const titleParts = cells.length ? ((cells[0] as HTMLElement).innerText || '').split(/\r?\n|\t/) : raw.split(/\r?\n|\t/);
+            if (!titleParts.map(comparableBrowser).includes(wanted.title)) continue;
             titleMatches.push(rowIndex);
             const artistMatches = lines.some((line) =>
                 line === wanted.artist || line.replace(/^primary artists?\s*/, "") === wanted.artist,
@@ -253,7 +258,7 @@ async function candidateFor(page: Page, title: string, artist: string, strictArt
         }
         // Soundfresh and SoundOn often format artist credits differently.
         // An exact title is safe when the filtered result contains only one row.
-        return !wanted.strictArtist && titleMatches.length === 1 ? (titleMatches[0] ?? -1) : -1;
+        return !wanted.strictArtist && !wanted.artist && titleMatches.length === 1 ? (titleMatches[0] ?? -1) : -1;
     }, { title: wantedTitle, artist: wantedArtist, strictArtist });
     return index >= 0 ? rows.nth(index) : null;
 }
@@ -286,7 +291,7 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
     }
 
     const inspectCandidate = async (lookup: ReleaseStatusLookup): Promise<boolean> => {
-        const candidate = await candidateFor(page, lookup.title, lookup.artist, strictArtist);
+        const candidate = await candidateFor(page, lookup.title, lookup.artist, Boolean(normalize(lookup.artist)) || strictArtist);
         if (!candidate) return false;
         const raw = await candidate.innerText().catch(() => "");
         const detectedValue = detectReleaseStatus(raw);
@@ -302,11 +307,12 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
 
     const inspectAcrossPages = async (lookup: ReleaseStatusLookup, knownStatus?: SoundOnReleaseStatus): Promise<boolean> => {
         for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
-            const candidate = await candidateFor(page, lookup.title, lookup.artist, strictArtist);
+            const candidate = await candidateFor(page, lookup.title, lookup.artist, Boolean(normalize(lookup.artist)) || strictArtist);
             if (candidate) {
                 const raw = await candidate.innerText().catch(() => "");
                 const detectedValue = knownStatus ?? detectReleaseStatus(raw);
                 const detected = detectedValue ? statuses.find((item) => item.value === detectedValue) : undefined;
+                if (!detected) throw new Error(`SOUNDON_STATUS_UNCONFIRMED:Judul dan artis ditemukan, tetapi status SoundOn tidak dikenali: ${lookup.title} — ${lookup.artist}`);
                 if (detected) {
                     const url = await releaseUrl(page, candidate);
                     const values = ["delivery", "approved", "live", "not_approved"].includes(detected.value)
@@ -321,7 +327,7 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
         return false;
     };
 
-    const searchTerms = (lookup: ReleaseStatusLookup): string[] => [lookup.title.trim()].filter(Boolean);
+    const searchTerms = (lookup: ReleaseStatusLookup): string[] => unique([lookup.title.trim(), lookup.artist.trim()].filter(Boolean));
 
     // Some SoundOn layouts show all releases in one view and expose status only
     // as a row badge (without tabs). Inspect the already-rendered rows before
@@ -334,10 +340,17 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
     // Search only the titles that were not part of the currently rendered page.
     for (const lookup of lookups) {
         if (matches[lookup.key] || !normalize(lookup.title)) continue;
+        let uncertain: unknown = null;
         for (const term of searchTerms(lookup)) {
-            await search(page, term);
+            try { await search(page, term); }
+            catch (error) {
+                if (!(error instanceof Error) || !error.message.startsWith('SOUNDON_SEARCH_UNCONFIRMED:')) throw error;
+                uncertain = error;
+                continue;
+            }
             if (await inspectAcrossPages(lookup)) break;
         }
+        if (!matches[lookup.key] && uncertain) throw uncertain;
     }
 
     for (const status of statuses) {

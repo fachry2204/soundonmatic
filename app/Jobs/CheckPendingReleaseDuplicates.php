@@ -51,10 +51,9 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
         $phase = 'validasi sesi platform';
 
         try {
-            $soundfresh = $sessions->ensure(Platform::Soundfresh);
             $soundon = $sessions->ensure(Platform::SoundOn);
-            if ($soundfresh->status === 'manual_auth_required' || $soundon->status === 'manual_auth_required') {
-                throw new \RuntimeException('Sesi Soundfresh atau SoundOn memerlukan login ulang.');
+            if ($soundon->status === 'manual_auth_required') {
+                throw new \RuntimeException('Sesi SoundOn memerlukan login ulang.');
             }
 
             $lookups = $jobs->map(fn (ReleaseJob $job): array => [
@@ -62,12 +61,6 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                 'title' => (string) $job->release_title,
                 'artist' => (string) $job->artist_name,
             ])->all();
-            $jobs->each->update(['progress_percent' => 5, 'progress_label' => 'Mencari '.count($lookups).' rilisan di Soundfresh All Releases...']);
-            $phase = 'Soundfresh All Releases';
-            $soundfreshMatches = $worker->soundfreshDuplicates($lookups, $soundfresh->session_state_encrypted);
-            $jobs->each->update(['progress_percent' => 15, 'progress_label' => 'Memeriksa '.count($lookups).' rilisan di SoundOn All releases...']);
-            $phase = 'SoundOn All Releases';
-            $releaseMatches = $worker->releaseDuplicates($lookups, $soundon->session_state_encrypted);
             $jobs->each->update(['progress_percent' => 35, 'progress_label' => 'Memeriksa '.count($lookups).' rilisan di Drafts SoundOn...']);
             $phase = 'SoundOn Drafts';
             $draftMatches = $worker->findDrafts($lookups, $soundon->session_state_encrypted);
@@ -79,20 +72,7 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                     'progress_percent' => $percent,
                     'progress_label' => "Memeriksa duplikat: {$current} (".($index + 1)."/{$total})",
                 ]);
-                $sources = [];
-                if (isset($soundfreshMatches[(string) $job->id])) {
-                    $candidate = $soundfreshMatches[(string) $job->id];
-                    if ((string) ($candidate['release_id'] ?? '') !== (string) $job->soundfresh_release_id) {
-                        $tab = str_replace('_', ' ', (string) ($candidate['workflow_status'] ?? 'tab lain'));
-                        $sources[] = "Soundfresh tab {$tab} (ID ".($candidate['release_id'] ?? '?').')';
-                    }
-                }
-                if (isset($releaseMatches[(string) $job->id])) {
-                    $status = str_replace('_', ' ', (string) ($releaseMatches[(string) $job->id]['status'] ?? 'all releases'));
-                    $sources[] = "SoundOn All releases (status {$status})";
-                }
                 $draftMatch = $draftMatches[(string) $job->id] ?? null;
-                $sources = array_values(array_unique($sources));
                 $submissionStarted = in_array($job->checkpoint, [
                     ReleaseCheckpoint::SoundOnDraftCreationStarted,
                     ReleaseCheckpoint::SoundOnDraftCreated,
@@ -102,7 +82,7 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                     ReleaseCheckpoint::SoundfreshReviewed,
                     ReleaseCheckpoint::Completed,
                 ], true);
-                if ($draftMatch && $sources === [] && $submissionStarted) {
+                if ($draftMatch && $submissionStarted) {
                     $draftId = (string) ($draftMatch['draft_id'] ?? '');
                     if ($draftId === '') {
                         throw new \RuntimeException('Draft SoundOn cocok tetapi Draft ID tidak tersedia.');
@@ -117,6 +97,8 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                         'error_code' => null,
                         'error_message' => null,
                     ]);
+                    $soundfresh = $sessions->ensure(Platform::Soundfresh);
+                    if ($soundfresh->status === 'manual_auth_required') throw new \RuntimeException('Sesi Soundfresh memerlukan login ulang.');
                     $review = $worker->review(
                         (string) $job->id,
                         $job->soundfresh_release_url,
@@ -134,16 +116,12 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                         'progress_percent' => 100,
                         'finished_at' => now(),
                     ]);
-                } elseif ($draftMatch || $sources !== []) {
-                    if ($draftMatch) {
-                        $sources[] = 'SoundOn Drafts';
-                    }
-                    $sources = array_values(array_unique($sources));
+                } elseif ($draftMatch) {
                     $job->update([
                         'status' => ReleaseJobStatus::NeedsAttention,
                         'progress_label' => 'Upload diblokir karena duplikat',
                         'error_code' => 'DUPLICATE_RELEASE_FOUND',
-                        'error_message' => 'Tidak dapat di-upload otomatis: judul dan artis yang sama ditemukan di '.implode(', ', $sources).'. Metadata draft belum dikonfirmasi cocok dengan seluruh metadata sumber; cocokkan secara manual sebelum melanjutkan.',
+                        'error_message' => 'Tidak dapat di-upload otomatis: judul dan artis yang sama ditemukan di SoundOn Drafts. Metadata draft belum dikonfirmasi cocok dengan seluruh metadata sumber; cocokkan secara manual sebelum melanjutkan.',
                         'progress_percent' => 100,
                         'finished_at' => now(),
                     ]);

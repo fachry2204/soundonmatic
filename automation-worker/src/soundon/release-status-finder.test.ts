@@ -26,6 +26,42 @@ describe("detectReleaseStatus", () => {
 });
 
 describe("findReleaseStatuses", () => {
+    it('reports an unrecognized status instead of saying a matching release is absent', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<table><tbody><tr><td>Love Me Too Late<br>Nexvira</td><td>New Status</td></tr></tbody></table>');
+            await expect(findReleaseStatuses(page, [{ key: '4070', title: 'Love Me Too Late', artist: 'Nexvira' }])).rejects.toThrow('SOUNDON_STATUS_UNCONFIRMED');
+        } finally { await browser.close(); }
+    }, 10000);
+    it('falls back to artist and selects the exact title and artist among unrelated results', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<input placeholder="Find release by album name or artist name">
+                <table><thead><tr><th>Title</th><th>Status</th></tr></thead><tbody></tbody></table>
+                <script>document.querySelector('input').addEventListener('input', e => {
+                    const query = e.target.value.toLowerCase();
+                    setTimeout(() => { document.querySelector('tbody').innerHTML = query === 'nexvira'
+                        ? '<tr><td>Click<br>Nexvira</td><td>Delivered</td></tr><tr><td>Love Me Too Late<br>Other Artist</td><td>Live</td></tr><tr><td>Love Me Too Late<br>Nexvira</td><td>Under Review</td></tr>'
+                        : '<tr><td class="semi-empty">No results</td></tr>'; }, 100);
+                });</script>`);
+            const matches = await findReleaseStatuses(page, [{ key: '4070', title: 'Love Me Too Late', artist: 'Nexvira' }]);
+            expect(matches['4070']?.status).toBe('under_review');
+            expect(await page.locator('input').inputValue()).toBe('Nexvira');
+        } finally { await browser.close(); }
+    }, 20000);
+
+    it('recognizes the matching title and artist in the third row', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<table><tbody><tr><td>Another</td><td>Live</td></tr><tr><td>Other</td><td>Live</td></tr>
+                <tr><td>Kekasih di Balik Bayang<br>Naraya Project</td><td>Under Review</td></tr></tbody></table>`);
+            const matches = await findReleaseStatuses(page, [{ key: '4209', title: 'Kekasih di Balik Bayang', artist: 'Naraya Project' }]);
+            expect(matches['4209']?.status).toBe('under_review');
+        } finally { await browser.close(); }
+    }, 10000);
     it("waits for delayed SoundOn search results and recognizes the delivered release", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

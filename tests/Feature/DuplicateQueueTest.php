@@ -5,6 +5,7 @@ use App\Jobs\CheckPendingReleaseDuplicates;
 use App\Jobs\ProcessReleaseJob;
 use App\Livewire\Automation\Dashboard;
 use App\Models\AutomationRun;
+use App\Models\AutomationAccount;
 use App\Models\ReleaseJob;
 use App\Models\User;
 use App\Services\Automation\PlaywrightClient;
@@ -18,6 +19,24 @@ use Tests\TestCase;
 class DuplicateQueueTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_draft_lookup_failure_blocks_upload_without_querying_all_releases(): void
+    {
+        Queue::fake();
+        config(['automation.hmac_key' => 'test', 'automation.worker_url' => 'http://worker.test']);
+        AutomationAccount::create(['platform' => 'soundon', 'name' => 'SoundOn', 'status' => 'active',
+            'session_state_encrypted' => ['cookies' => [], 'origins' => []], 'last_authenticated_at' => now()]);
+        $run = AutomationRun::create(['status' => 'running']);
+        $release = ReleaseJob::create(['automation_run_id' => $run->id, 'soundfresh_release_id' => 'draft-check',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/1', 'idempotency_key' => 'draft-check',
+            'release_title' => 'Lagu', 'artist_name' => 'Artis', 'status' => 'queued', 'error_code' => 'DUPLICATE_CHECK_PENDING']);
+        Http::fake(['worker.test/v1/soundon/drafts/find-many' => Http::response(['error' => 'DRAFT_LOOKUP_UNCONFIRMED'], 500)]);
+        app()->call([new CheckPendingReleaseDuplicates([$release->id], $run->id), 'handle']);
+        $this->assertSame('DUPLICATE_CHECK_FAILED', $release->fresh()->error_code);
+        $this->assertStringContainsString('SoundOn Drafts', $release->fresh()->error_message);
+        Queue::assertNotPushed(ProcessReleaseJob::class);
+        Http::assertSentCount(1);
+    }
 
     public function test_initial_check_uses_the_pipeline_queue_and_failure_clears_waiting(): void
     {
