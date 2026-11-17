@@ -19,6 +19,26 @@ class StartAutomationRunTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_collection_refreshes_uploaded_date_for_existing_release_without_erasing_metadata(): void
+    {
+        Queue::fake();
+        config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);
+        AutomationAccount::create(['platform' => Platform::Soundfresh, 'name' => 'Soundfresh', 'status' => 'active',
+            'session_state_encrypted' => ['cookies' => [], 'origins' => []], 'last_authenticated_at' => now()]);
+        $oldRun = AutomationRun::create(['status' => 'completed']);
+        $existing = ReleaseJob::create(['automation_run_id' => $oldRun->id, 'soundfresh_release_id' => '4208',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/4208', 'idempotency_key' => 'soundfresh:4208:soundon',
+            'status' => 'queued', 'metadata_snapshot_json' => ['title' => 'Citrus Overdrive', 'audio' => 'keep']]);
+        Http::fake(['*' => Http::response(['success' => true, 'data' => ['items' => [
+            ['release_id' => 'new', 'title' => 'Baru', 'primary_artist' => 'A', 'detail_url' => 'https://cms.soundfresh.id/admin/releases/new', 'uploaded_at' => '2026-11-13T00:00:00.000Z'],
+            ['release_id' => '4208', 'title' => 'Citrus Overdrive', 'primary_artist' => 'B', 'detail_url' => 'https://cms.soundfresh.id/admin/releases/4208', 'uploaded_at' => '2026-11-09T00:00:00.000Z'],
+        ]]])]);
+        $run = app(StartAutomationRun::class)->handle();
+        $this->assertSame(['4208', 'new'], $run->fresh()->summary_json['pending_release_ids']);
+        $this->assertSame('2026-11-09T00:00:00.000Z', $existing->fresh()->metadata_snapshot_json['uploaded_at']);
+        $this->assertSame('keep', $existing->fresh()->metadata_snapshot_json['audio']);
+    }
+
     public function test_empty_pending_finishes_run(): void
     {
         config(['automation.hmac_key' => 'test-secret', 'automation.worker_url' => 'http://127.0.0.1:3100']);

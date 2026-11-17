@@ -89,6 +89,10 @@ final class StartAutomationRun
             return;
         }
 
+        // Defensively retain the same priority even if a worker or an older
+        // cached response supplies Pending rows in Soundfresh's display order.
+        $items = collect($items)->sortBy(fn (array $item): string => (string) ($item['uploaded_at'] ?? '') ?: '9999')->values()->all();
+
         // Duplicate detection is the first gate after collecting Pending. A
         // release may only become selectable after title + primary artist have
         // been checked against SoundOn Drafts.
@@ -120,7 +124,14 @@ final class StartAutomationRun
         foreach ($items as $position => $item) {
             $key = 'soundfresh:'.$item['release_id'].':soundon';
 
-            if (ReleaseJob::where('idempotency_key', $key)->exists()) {
+            $existing = ReleaseJob::where('idempotency_key', $key)->first();
+            if ($existing) {
+                $snapshot = $existing->metadata_snapshot_json ?? [];
+                // Preserve downloaded assets and all previously extracted
+                // metadata when refreshing only the ordering information.
+                $snapshot['uploaded_at'] = $item['uploaded_at'] ?? ($snapshot['uploaded_at'] ?? null);
+                $snapshot['pending_order'] = $position;
+                $existing->update(['metadata_snapshot_json' => $snapshot]);
                 $run->increment('skipped');
 
                 continue;

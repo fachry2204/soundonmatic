@@ -7,6 +7,19 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { dismissSoundOnTwoStepPrompt } from './session-validation.js';
 const contextBrowsers = new WeakMap<BrowserContext, Awaited<ReturnType<typeof chromium.launch>>>();
+/** A Playwright locator handler runs asynchronously outside the route's try/catch. */
+export async function handleOptionalSoundOnPrompt(page: import('playwright').Page): Promise<void> {
+    try {
+        if (page.isClosed()) return;
+        const hostname = new URL(page.url()).hostname.toLowerCase();
+        if (hostname === 'soundon.global' || hostname.endsWith('.soundon.global'))
+            await dismissSoundOnTwoStepPrompt(page);
+    } catch (error) {
+        // Closing a context or rerendering a dialog can race its handler. Do
+        // not allow this detached callback to crash the Node worker process.
+        if (!page.isClosed()) console.warn('SoundOn optional verification prompt could not be dismissed; the current operation will verify the page state.');
+    }
+}
 const launchOptions = () => ({
     headless: process.env.BROWSER_HEADLESS !== "false",
     ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
@@ -44,11 +57,7 @@ export async function sessionContext(
             const prompt = page.locator('[role="dialog"],[aria-modal="true"],dialog,.semi-modal,.so-form-modal-dialog')
                 .filter({ hasText: /(?:two|2)[-\s]*(?:step|factor)|2fa/i })
                 .filter({ has: page.getByText(/^(?:not\s*now|skip)$/i) });
-            void page.addLocatorHandler(prompt.first(), async () => {
-                const hostname = new URL(page.url()).hostname.toLowerCase();
-                if (hostname === 'soundon.global' || hostname.endsWith('.soundon.global'))
-                    await dismissSoundOnTwoStepPrompt(page);
-            }, { noWaitAfter: true }).catch(() => undefined);
+            void page.addLocatorHandler(prompt.first(), () => handleOptionalSoundOnPrompt(page), { noWaitAfter: true }).catch(() => undefined);
         });
         contextBrowsers.set(browserContext, browser);
 

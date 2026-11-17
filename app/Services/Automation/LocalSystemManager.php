@@ -50,7 +50,28 @@ final class LocalSystemManager
             }
         } while (microtime(true) < $deadline);
 
+        if (! $status['worker']) {
+            $logsFile = storage_path('app/automation-worker.pid.logs.json');
+            $logs = is_file($logsFile) ? json_decode((string) @file_get_contents($logsFile), true) : null;
+            $errorFile = is_array($logs) ? ($logs['stderr'] ?? null) : null;
+            if (is_string($errorFile) && is_file($errorFile)) {
+                $handle = @fopen($errorFile, 'rb');
+                if ($handle !== false) {
+                    if (filesize($errorFile) > 16384) fseek($handle, -16384, SEEK_END);
+                    $diagnostic = self::classifyWorkerStartupError((string) stream_get_contents($handle));
+                    fclose($handle);
+                    if ($diagnostic !== null) throw new RuntimeException($diagnostic);
+                }
+            }
+        }
         throw new RuntimeException('Server, browser worker, atau queue worker belum merespons. Periksa storage/logs/app-service-error.log, automation-worker-error.log, dan release-worker.log.');
+    }
+
+    public static function classifyWorkerStartupError(string $log): ?string
+    {
+        return str_contains($log, 'ncrypto::CSPRNG')
+            ? 'BROWSER_WORKER_CSPRNG_FAILED: Node.js gagal memulai generator angka acak kriptografis. Periksa keamanan dan layanan kriptografi Windows; jangan hapus sesi atau menonaktifkan keamanan.'
+            : null;
     }
 
     /** Stop only the local browser worker process; the web server stays online. */

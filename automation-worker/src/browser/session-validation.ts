@@ -12,7 +12,13 @@ export async function dismissSoundOnTwoStepPrompt(page: Page): Promise<boolean> 
             || await dialog.locator('input[autocomplete="one-time-code"]').count()) continue;
         const skip = dialog.getByRole('button', { name: /^(?:not\s*now|skip)$/i })
             .or(dialog.getByRole('link', { name: /^(?:not\s*now|skip)$/i })).filter({ visible: true }).first();
-        if (await skip.count()) { await skip.click(); return true; }
+        if (await skip.count()) {
+            try { await skip.click({ timeout: 3_000, noWaitAfter: true }); return true; }
+            catch (error) {
+                if (page.isClosed()) return false;
+                throw error;
+            }
+        }
     }
     return false;
 }

@@ -115,6 +115,9 @@ final class Dashboard extends Component
                 'exception_class' => $error::class,
             ]);
             $this->operationError = 'Pengambilan gagal saat '.$stage.'. Kode pemeriksaan: '.$diagnosticId.'. Periksa storage/logs/laravel.log dengan kode tersebut.';
+            if (str_starts_with($error->getMessage(), 'BROWSER_WORKER_CSPRNG_FAILED:')) {
+                $this->operationError .= ' '.substr($error->getMessage(), strlen('BROWSER_WORKER_CSPRNG_FAILED: '));
+            }
 
             return;
         }
@@ -513,7 +516,8 @@ final class Dashboard extends Component
                 ->latest()
                 ->get()
                 ->unique('soundfresh_release_id')
-                ->sortBy(fn (ReleaseJob $job) => array_search((string) $job->soundfresh_release_id, $pendingReleaseIds, true))
+                ->sortBy(fn (ReleaseJob $job): string => ((string) data_get($job->metadata_snapshot_json, 'uploaded_at', null) ?: '9999')
+                    . sprintf(':%010d', (int) (array_search((string) $job->soundfresh_release_id, $pendingReleaseIds, true) ?: 0)))
                 ->values();
         // "Selesai" means a draft really exists in SoundOn. Failed and
         // needs-attention jobs remain unfinished and must not advance the
