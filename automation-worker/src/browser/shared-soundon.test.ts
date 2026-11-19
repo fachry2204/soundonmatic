@@ -10,7 +10,7 @@ import { acquireSoundOnPage } from './shared-soundon.js';
 describe('shared SoundOn browser', () => {
     beforeEach(() => {
         mocked.pages.length = 0; mocked.closed.mockReset(); mocked.create.mockReset();
-        mocked.create.mockImplementation(async () => ({ newPage: async () => {
+        mocked.create.mockImplementation(async (initialState) => ({ storageState: vi.fn().mockResolvedValue(initialState), newPage: async () => {
             const page = { close: vi.fn().mockResolvedValue(undefined) }; mocked.pages.push(page); return page;
         } }));
     });
@@ -22,10 +22,24 @@ describe('shared SoundOn browser', () => {
         await b.release(); expect(mocked.pages[1]?.close).toHaveBeenCalledTimes(1); expect(mocked.closed).not.toHaveBeenCalled();
         await Promise.all([a.release(), c.release()]); expect(mocked.closed).toHaveBeenCalledTimes(1);
     });
-    it('refuses to mix a different session into active uploads', async () => {
+    it('waits for active uploads before opening a different session', async () => {
         const a = await acquireSoundOnPage(state);
         const other = { ...state, cookies: [{ ...state.cookies[0]!, value: 'different' }] };
-        await expect(acquireSoundOnPage(other)).rejects.toThrow('SOUNDON_SHARED_SESSION_CHANGED');
+        let acquired = false;
+        const pending = acquireSoundOnPage(other).then(value => { acquired = true; return value; });
+        await new Promise(resolve => setTimeout(resolve, 25));
+        expect(acquired).toBe(false);
         await a.release();
+        const b = await pending;
+        expect(mocked.create).toHaveBeenCalledTimes(2);
+        await b.release();
+    });
+    it('accepts the current rotated session from the existing context', async () => {
+        const rotated = { ...state, cookies: [{ ...state.cookies[0]!, value: 'rotated' }] };
+        const a = await acquireSoundOnPage(state);
+        vi.mocked(a.context.storageState).mockResolvedValue(rotated);
+        const b = await acquireSoundOnPage(rotated);
+        expect(mocked.create).toHaveBeenCalledTimes(1);
+        await Promise.all([a.release(), b.release()]);
     });
 });
