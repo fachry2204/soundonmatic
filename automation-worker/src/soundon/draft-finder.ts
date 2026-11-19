@@ -136,6 +136,14 @@ async function referenceForMatchedCandidate(
         if (draftId) return { found: true, draft_id: draftId, draft_url: absolute };
     }
 
+    // In SoundOn's Drafts table the row key for an album matches the id in
+    // its edit URL. Keep the existing list URL: constructing an album edit
+    // URL here would be incorrect for other release types.
+    const rowKey = await candidate.getAttribute('data-row-key').catch(() => null);
+    if (rowKey && /^\d{10,}$/.test(rowKey)) {
+        return { found: true, draft_id: rowKey, draft_url: page.url() };
+    }
+
     // SoundOn sometimes renders the draft row with JavaScript click handlers
     // and no usable href. A title+artist match is still sufficient to block a
     // duplicate. Store a stable local reference and point operators to the

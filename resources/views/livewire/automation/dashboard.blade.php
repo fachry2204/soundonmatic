@@ -417,6 +417,10 @@
                                 @endif
                                 @if($job->error_code === 'DUPLICATE_RELEASE_FOUND' && blank($job->soundon_draft_id))
                                     @can('automation.retry')
+                                        <button type="button" wire:click="reviewVerifiedDraft('{{ $job->id }}')" wire:confirm="Sudahkah Anda memastikan hanya ada satu draft yang sesuai, serta membandingkan judul, artis, seluruh track, audio, cover, dan metadata dengan Soundfresh? Sistem hanya memeriksa ulang judul dan artis, bukan seluruh isi draft. Lanjutkan hanya jika sudah cocok." wire:loading.attr="disabled" wire:target="reviewVerifiedDraft('{{ $job->id }}')" class="secondary-button mt-2">
+                                            Ubah status Soundfresh
+                                        </button>
+                                        <p class="mt-1 text-[10px] text-amber-700">Periksa draft dan seluruh track secara manual terlebih dahulu; tidak membuat draft baru.</p>
                                         <button type="button" wire:click="forceDuplicateUpload('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="forceDuplicateUpload('{{ $job->id }}')" class="secondary-button mt-2 border-amber-300 text-amber-800 hover:bg-amber-50" aria-label="Tetap upload {{ $displayTitle }} meskipun duplikat">
                                             <span wire:loading.remove wire:target="forceDuplicateUpload('{{ $job->id }}')">Tetap Upload</span>
                                             <span wire:loading wire:target="forceDuplicateUpload('{{ $job->id }}')">Mengantrekan...</span>

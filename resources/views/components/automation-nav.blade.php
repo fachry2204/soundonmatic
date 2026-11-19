@@ -15,3 +15,6 @@
     data-login-url="{{ route('login') }}"
     data-logout-url="{{ route('logout') }}"
 ></div>
+@can('automation.retry')
+    <div class="page-shell"><a class="secondary-button" href="{{ route('automation.soundon-drafts') }}">Hapus Draft SoundOn</a></div>
+@endcan

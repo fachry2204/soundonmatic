@@ -30,6 +30,23 @@ final class PlaywrightClient
         ])['items'] ?? [];
     }
 
+    public function soundonDraftInventory(?array $sessionState = null): array
+    {
+        return (array) ($this->post('/v1/soundon/drafts/inventory', ['session_state' => $sessionState])['drafts'] ?? []);
+    }
+
+    public function deleteSoundonDraft(string $draftId, string $title, ?array $sessionState = null): array
+    {
+        return $this->post('/v1/soundon/drafts/delete-one', [
+            'draft_id' => $draftId, 'title' => $title, 'session_state' => $sessionState,
+        ]);
+    }
+
+    public function protectedSoundfreshScans(?array $sessionState = null): array
+    {
+        return (array) ($this->post('/v1/soundfresh/protected-scan', ['session_state' => $sessionState])['scans'] ?? []);
+    }
+
     public function underReview(?int $limit = null, ?array $sessionState = null): array
     {
         return $this->post('/v1/soundfresh/pending', [

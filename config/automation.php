@@ -23,8 +23,8 @@ return [
     'hmac_key' => env('AUTOMATION_HMAC_KEY') ?: hash('sha256', (string) env('APP_KEY').'|soundonmatic-automation-hmac'),
     'batch_size' => (int) env('AUTOMATION_BATCH_SIZE', 10),
     // Two isolated Chromium contexts may process two releases concurrently.
-    'browser_concurrency' => max(1, (int) env('AUTOMATION_BROWSER_CONCURRENCY', 2)),
-    'release_queue_workers' => max(1, (int) env('AUTOMATION_RELEASE_QUEUE_WORKERS', 2)),
+    'browser_concurrency' => min(3, max(1, (int) env('AUTOMATION_BROWSER_CONCURRENCY', 3))),
+    'release_queue_workers' => min(3, max(1, (int) env('AUTOMATION_RELEASE_QUEUE_WORKERS', 3))),
     // A failed remote request still clears the cached state and authenticates on
     // retry, so healthy sessions do not need a fresh browser validation per job.
     'session_validation_interval_seconds' => (int) env('AUTOMATION_SESSION_VALIDATION_INTERVAL_SECONDS', 1800),

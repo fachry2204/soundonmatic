@@ -34,7 +34,7 @@ final class UploadEligibleDraftsToSoundOn
                 ]);
             })
             ->get()
-            ->sortBy(fn (ReleaseJob $job): string => ((string) data_get($job->metadata_snapshot_json, 'uploaded_at', null) ?: '9999') . sprintf(':%010d', (int) data_get($job->metadata_snapshot_json, 'pending_order', 9999999999)))
+            ->sortBy(fn (ReleaseJob $job): string => \App\Services\Automation\ReleaseDatePriority::key(data_get($job->metadata_snapshot_json, 'release_date')).sprintf(':%010d', (int) data_get($job->metadata_snapshot_json, 'pending_order', 9999999999)))
             ->values();
 
         $skipped = $requestedIds->count() - $eligible->count();
@@ -64,9 +64,11 @@ final class UploadEligibleDraftsToSoundOn
             }
         });
 
-        // A chain is necessary: multiple queue workers could otherwise start a
-        // newer release before the older one's SoundOn upload has finished.
-        if ($eligible->isNotEmpty()) Bus::chain($eligible->map(fn (ReleaseJob $job) => new ProcessReleaseJob((string) $job->id))->all())->dispatch();
+        // Three ordered lanes permit three releases at once while preventing
+        // one lane from starting its next release before its prior one ends.
+        $lanes = [[], [], []];
+        foreach ($eligible as $index => $job) $lanes[$index % 3][] = new ProcessReleaseJob((string) $job->id);
+        foreach ($lanes as $lane) if ($lane !== []) Bus::chain($lane)->dispatch();
 
         return ['queued' => $eligible->count(), 'skipped' => $skipped];
     }

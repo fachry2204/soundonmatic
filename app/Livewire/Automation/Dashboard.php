@@ -15,6 +15,7 @@ use App\Enums\AutomationRunStatus;
 use App\Enums\ReleaseJobStatus;
 use App\Exceptions\CredentialsNotConfiguredException;
 use App\Jobs\ProcessReleaseJob;
+use App\Jobs\ReviewManuallyVerifiedDraft;
 use App\Models\AutomationAccount;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
@@ -420,6 +421,27 @@ final class Dashboard extends Component
         $this->uploadMessage = "Retry {$job->release_title} berhasil diantrikan dari checkpoint terakhir.";
     }
 
+    public function reviewVerifiedDraft(string $jobId): void
+    {
+        Gate::authorize('automation.retry');
+        $this->operationError = null;
+        $this->uploadMessage = null;
+        $job = ReleaseJob::findOrFail($jobId);
+        abort_unless($job->error_code === 'DUPLICATE_RELEASE_FOUND' && blank($job->soundon_draft_id), 409);
+        abort_if(blank($job->release_title) || blank($job->artist_name) || blank($job->soundfresh_release_url), 409);
+        $updated = ReleaseJob::whereKey($job->id)->where('error_code', 'DUPLICATE_RELEASE_FOUND')
+            ->whereNull('soundon_draft_id')->update([
+                'status' => ReleaseJobStatus::Queued,
+                'error_code' => 'DRAFT_MANUAL_REVIEW_PENDING', 'error_message' => null,
+                'progress_label' => 'Menunggu pemeriksaan ulang draft dan status Soundfresh',
+                'finished_at' => null, 'progress_updated_at' => now(),
+            ]);
+        abort_unless($updated === 1, 409);
+        app(OperatorAudit::class)->record('draft_manual_review_requested', 'Operator confirmed manual comparison of existing SoundOn draft before requesting Soundfresh review.', $job->automation_run_id, $job->id);
+        ReviewManuallyVerifiedDraft::dispatch((string) $job->id);
+        $this->uploadMessage = "Pemeriksaan ulang draft {$job->release_title} telah diantrikan; tidak ada upload baru.";
+    }
+
     /** Force an upload only after an operator explicitly accepts a duplicate release. */
     public function forceDuplicateUpload(string $jobId): void
     {
@@ -516,7 +538,7 @@ final class Dashboard extends Component
                 ->latest()
                 ->get()
                 ->unique('soundfresh_release_id')
-                ->sortBy(fn (ReleaseJob $job): string => ((string) data_get($job->metadata_snapshot_json, 'uploaded_at', null) ?: '9999')
+                ->sortBy(fn (ReleaseJob $job): string => \App\Services\Automation\ReleaseDatePriority::key(data_get($job->metadata_snapshot_json, 'release_date'))
                     . sprintf(':%010d', (int) (array_search((string) $job->soundfresh_release_id, $pendingReleaseIds, true) ?: 0)))
                 ->values();
         // "Selesai" means a draft really exists in SoundOn. Failed and

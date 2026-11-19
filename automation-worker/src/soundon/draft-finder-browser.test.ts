@@ -3,6 +3,15 @@ import { chromium } from 'playwright';
 import { findDraft } from './draft-finder.js';
 
 describe('live draft result readiness', () => {
+    it('uses the numeric SoundOn row key as the draft reference', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.goto('data:text/html,<!doctype html>');
+            await page.setContent('<button role="tab" aria-selected="true">Drafts</button><input placeholder="Search"><table><tbody><tr data-row-key="7709712260272785414"><td>Ember City</td><td>Phonk Forge</td><td>10</td></tr></tbody></table>');
+            expect((await findDraft(page, 'Ember City', 'Phonk Forge'))?.draft_id).toBe('7709712260272785414');
+        } finally { await browser.close(); }
+    }, 10000);
     it('ignores an existing draft upload progress bar when checking list readiness', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

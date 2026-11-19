@@ -21,8 +21,8 @@ final class LocalSystemManager
             'release_workers' => $releaseWorkers,
             'status_workers' => $statusWorkers,
             'queues_online' => $releaseWorkers > 0 && $statusWorkers > 0,
-            'worker_slots' => (int) config('automation.release_queue_workers', 2),
-            'browser_slots' => (int) config('automation.browser_concurrency', 2),
+            'worker_slots' => (int) config('automation.release_queue_workers', 3),
+            'browser_slots' => (int) config('automation.browser_concurrency', 3),
         ];
     }
 
@@ -117,8 +117,8 @@ final class LocalSystemManager
             return;
         }
 
-        if ($this->queueWorkerCount('release-automation') === 0) {
-            $this->startQueueWorker('release-automation,default', 'release-worker.log', 'release-worker-error.log');
+        for ($slot = 0; $slot < min(3, (int) config('automation.release_queue_workers', 3)); $slot++) {
+            $this->startQueueWorker('release-automation,default', 'release-worker.log', 'release-worker-error.log', $slot);
         }
         if ($this->queueWorkerCount('status-checks') === 0) {
             $this->startQueueWorker('status-checks', 'status-worker.log', 'status-worker-error.log');
@@ -133,8 +133,12 @@ final class LocalSystemManager
         }
 
         foreach ($queues ?? ['release-automation', 'status-checks'] as $queue) {
-            $pidFile = $this->queueWorkerPidFile((string) $queue);
-            if (is_file($pidFile)) {
+            $pidFiles = [$this->queueWorkerPidFile((string) $queue)];
+            if ($queue === 'release-automation') {
+                $pidFiles[] = storage_path('app/release-queue-worker-2.pid');
+                $pidFiles[] = storage_path('app/release-queue-worker-3.pid');
+            }
+            foreach ($pidFiles as $pidFile) if (is_file($pidFile)) {
                 $pid = (int) trim((string) file_get_contents($pidFile));
                 if ($pid > 0) {
                     // The recorded PID supervises a child Artisan process.
@@ -201,28 +205,20 @@ final class LocalSystemManager
             return 0;
         }
 
-        $pidFile = $this->queueWorkerPidFile($queue);
-        if (! is_file($pidFile)) {
-            return $this->windowsQueueProcessExists($queue) ? 1 : 0;
+        $pidFiles = [$this->queueWorkerPidFile($queue)];
+        if ($queue === 'release-automation') {
+            $pidFiles[] = storage_path('app/release-queue-worker-2.pid');
+            $pidFiles[] = storage_path('app/release-queue-worker-3.pid');
         }
-        $pid = (int) trim((string) file_get_contents($pidFile));
-        if ($pid < 1) {
-            @unlink($pidFile);
-
-            return 0;
+        $count = 0;
+        foreach ($pidFiles as $pidFile) {
+            if (! is_file($pidFile)) continue;
+            $pid = (int) trim((string) file_get_contents($pidFile));
+            if ($pid < 1) continue;
+            $output = (string) shell_exec('tasklist.exe /FI "PID eq '.$pid.'" /FO CSV /NH 2>NUL');
+            if (str_contains($output, '"'.$pid.'"') && ! str_contains(strtolower($output), 'no tasks are running')) $count++;
         }
-
-        // Symfony Process re-quotes TASKLIST's /FI expression on this Windows
-        // host, causing a live PID to be reported as missing. Native shell
-        // execution preserves the filter and keeps dashboard polling cheap.
-        $output = (string) shell_exec('tasklist.exe /FI "PID eq '.$pid.'" /FO CSV /NH 2>NUL');
-        $alive = str_contains($output, '"'.$pid.'"')
-            && ! str_contains(strtolower($output), 'no tasks are running');
-        if (! $alive) {
-            @unlink($pidFile);
-        }
-
-        return $alive ? 1 : 0;
+        return $count ?: ($this->windowsQueueProcessExists($queue) ? 1 : 0);
     }
 
     private function windowsQueueProcessExists(string $queue): bool
@@ -275,9 +271,10 @@ final class LocalSystemManager
         return array_values(array_unique(array_map('intval', $matches[1] ?? [])));
     }
 
-    private function startQueueWorker(string $queue, string $outputLog, string $errorLog): void
+    private function startQueueWorker(string $queue, string $outputLog, string $errorLog, int $slot = 0): void
     {
         $pidFile = $this->queueWorkerPidFile(str_contains($queue, 'release-automation') ? 'release-automation' : 'status-checks');
+        if ($slot > 0) $pidFile = storage_path('app/release-queue-worker-'.($slot + 1).'.pid');
         $this->startWindowsArtisanProcess(
             ['queue:work', 'database', '--queue='.$queue, '--sleep=2', '--tries=3', '--timeout=2700'],
             $pidFile,

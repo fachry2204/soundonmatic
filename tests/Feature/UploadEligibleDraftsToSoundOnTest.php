@@ -18,7 +18,25 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_upload_chain_prioritizes_oldest_uploaded_date_not_release_date(): void
+    public function test_three_ordered_lanes_queue_the_first_three_releases_together(): void
+    {
+        Queue::fake();
+        $run = AutomationRun::create(['status' => 'completed']);
+        $releases = collect(range(1, 5))->map(fn ($i) => ReleaseJob::create([
+            'automation_run_id' => $run->id, 'soundfresh_release_id' => 'lane-'.$i,
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/'.$i,
+            'idempotency_key' => 'lane-'.$i, 'status' => 'completed',
+            'metadata_snapshot_json' => ['release_date' => sprintf('2026-11-%02d', 20 + $i)],
+        ]));
+        app(UploadEligibleDraftsToSoundOn::class)->handle($releases->pluck('id')->all());
+        $queued = Queue::pushed(ProcessReleaseJob::class)->values();
+        $this->assertCount(3, $queued);
+        $this->assertSame($releases->take(3)->pluck('id')->all(), $queued->map(fn ($job) => $job->releaseJobId)->all());
+        $this->assertSame($releases[3]->id, unserialize($queued[0]->chained[0])->releaseJobId);
+        $this->assertSame($releases[4]->id, unserialize($queued[1]->chained[0])->releaseJobId);
+    }
+
+    public function test_upload_chain_prioritizes_earliest_release_date_not_uploaded_date(): void
     {
         Queue::fake();
         $run = AutomationRun::create(['status' => 'completed']);
@@ -32,9 +50,8 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
         $old = $make('old', '2026-11-09T00:00:00.000Z', '2026-11-28');
         $unknown = $make('unknown', null, '2026-11-19');
         app(UploadEligibleDraftsToSoundOn::class)->handle([$new->id, $unknown->id, $old->id]);
-        $first = Queue::pushed(ProcessReleaseJob::class)->first();
-        $this->assertSame((string) $old->id, $first->releaseJobId);
-        $this->assertSame([(string) $new->id, (string) $unknown->id], array_map(fn ($serialized) => unserialize($serialized)->releaseJobId, $first->chained));
+        $firstThree = Queue::pushed(ProcessReleaseJob::class)->map(fn ($job) => $job->releaseJobId)->all();
+        $this->assertSame([(string) $unknown->id, (string) $new->id, (string) $old->id], $firstThree);
     }
 
     public function test_only_selected_eligible_releases_are_queued(): void

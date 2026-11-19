@@ -6,8 +6,14 @@ export function uploadedAtIso(value) {
     const time = Date.parse(text);
     return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
-export function oldestUploadedFirst(items) {
+export function earliestReleaseFirst(items) {
+    const priority = (value) => {
+        if (!value || !value.trim())
+            return Number.POSITIVE_INFINITY;
+        const date = Date.parse(value);
+        return Number.isFinite(date) ? date : Number.POSITIVE_INFINITY;
+    };
     return items.map((item, index) => ({ item, index }))
-        .sort((a, b) => (a.item.uploaded_at ?? '\uffff').localeCompare(b.item.uploaded_at ?? '\uffff') || a.index - b.index)
+        .sort((a, b) => priority(a.item.release_date) - priority(b.item.release_date) || a.index - b.index)
         .map(({ item }) => item);
 }

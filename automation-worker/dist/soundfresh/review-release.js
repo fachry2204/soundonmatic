@@ -8,6 +8,14 @@ function reviewStatus(page) {
 export async function moveSoundfreshReleaseToUnderReview(page, aggregator, draftId) {
     await ensureSoundfreshEnglish(page);
     const action = primaryReleaseAction(page, 'Review Release');
+    // Language switching and the release page can render asynchronously.
+    // Wait for either the specific primary action or a verified status badge.
+    if (!await action.count() && !await reviewStatus(page).count()) {
+        await Promise.race([
+            action.waitFor({ state: 'visible', timeout: 8_000 }),
+            reviewStatus(page).waitFor({ state: 'visible', timeout: 8_000 }),
+        ]).catch(() => undefined);
+    }
     if (!await action.count()) {
         if (await reviewStatus(page).count())
             return;

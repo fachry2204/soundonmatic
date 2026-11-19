@@ -15,7 +15,7 @@ class DashboardPollingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_monitor_shows_oldest_uploaded_date_first_even_for_reused_records(): void
+    public function test_monitor_shows_nearest_release_date_first_even_for_reused_records(): void
     {
         $this->seed(AccessControlSeeder::class);
         $user = User::factory()->create();
@@ -23,13 +23,13 @@ class DashboardPollingTest extends TestCase
         $this->actingAs($user);
         $run = AutomationRun::create(['status' => 'completed', 'pending_found' => 3,
             'summary_json' => ['pending_release_ids' => ['new', 'unknown', 'old']]]);
-        foreach ([['new', 'Lagu Baru', '2026-11-13T00:00:00.000Z'], ['unknown', 'Tanpa Tanggal', null], ['old', 'Lagu Lama', '2026-11-09T00:00:00.000Z']] as [$id, $title, $uploaded]) {
+        foreach ([['new', 'Lagu Baru', '2026-11-13T00:00:00.000Z', '2026-11-20'], ['unknown', 'Tanpa Tanggal', null, null], ['old', 'Lagu Lama', '2026-11-09T00:00:00.000Z', '2026-11-28']] as [$id, $title, $uploaded, $release]) {
             ReleaseJob::create(['automation_run_id' => $run->id, 'soundfresh_release_id' => $id,
                 'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/'.$id, 'idempotency_key' => 'order-'.$id,
                 'release_title' => $title, 'status' => 'queued', 'soundfresh_workflow_status' => 'pending',
-                'metadata_snapshot_json' => ['uploaded_at' => $uploaded]]);
+                'metadata_snapshot_json' => ['uploaded_at' => $uploaded, 'release_date' => $release]]);
         }
-        Livewire::test(Dashboard::class)->set('monitorRunId', $run->id)->assertSeeInOrder(['Lagu Lama', 'Lagu Baru', 'Tanpa Tanggal']);
+        Livewire::test(Dashboard::class)->set('monitorRunId', $run->id)->assertSeeInOrder(['Lagu Baru', 'Lagu Lama', 'Tanpa Tanggal']);
     }
 
     public function test_pending_button_reaches_collection_with_readable_credentials(): void

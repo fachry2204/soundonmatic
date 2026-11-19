@@ -124,6 +124,8 @@ internal static class Program
             Start("app", Php(root), ["artisan", "serve", "--host=127.0.0.1", $"--port={AppPort}"], root, automationKey);
             Start("scheduler", Php(root), ["artisan", "schedule:work", "--no-interaction"], root, automationKey);
             StartQueueWorker("release-automation,default", "release-queue-worker.pid", "release-worker.log", "release-worker-error.log");
+            StartQueueWorker("release-automation,default", "release-queue-worker-2.pid", "release-worker.log", "release-worker-error.log");
+            StartQueueWorker("release-automation,default", "release-queue-worker-3.pid", "release-worker.log", "release-worker-error.log");
             StartQueueWorker("status-checks", "status-queue-worker.pid", "status-worker.log", "status-worker-error.log");
             Start("worker", Node(root), ["--env-file=.env", "dist/server.js"], Path.Combine(root, "automation-worker"), automationKey);
         }
@@ -287,7 +289,7 @@ internal static class Program
 
         private static readonly string[] WorkerPidFiles = [
             "desktop-app.pid", "desktop-scheduler.pid", "automation-worker-desktop.pid",
-            "automation-worker.pid", "release-queue-worker.pid", "status-queue-worker.pid", "laravel-server.pid",
+            "automation-worker.pid", "release-queue-worker.pid", "release-queue-worker-2.pid", "release-queue-worker-3.pid", "status-queue-worker.pid", "laravel-server.pid",
         ];
 
         private void KillBundledProcessTree(int processId)

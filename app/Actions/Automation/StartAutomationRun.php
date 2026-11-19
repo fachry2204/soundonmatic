@@ -89,9 +89,8 @@ final class StartAutomationRun
             return;
         }
 
-        // Defensively retain the same priority even if a worker or an older
-        // cached response supplies Pending rows in Soundfresh's display order.
-        $items = collect($items)->sortBy(fn (array $item): string => (string) ($item['uploaded_at'] ?? '') ?: '9999')->values()->all();
+        // Apply the release-date priority even for older worker responses.
+        $items = collect($items)->sortBy(fn (array $item): string => \App\Services\Automation\ReleaseDatePriority::key($item['release_date'] ?? null))->values()->all();
 
         // Duplicate detection is the first gate after collecting Pending. A
         // release may only become selectable after title + primary artist have
@@ -130,6 +129,7 @@ final class StartAutomationRun
                 // Preserve downloaded assets and all previously extracted
                 // metadata when refreshing only the ordering information.
                 $snapshot['uploaded_at'] = $item['uploaded_at'] ?? ($snapshot['uploaded_at'] ?? null);
+                $snapshot['release_date'] = $item['release_date'] ?? ($snapshot['release_date'] ?? null);
                 $snapshot['pending_order'] = $position;
                 $existing->update(['metadata_snapshot_json' => $snapshot]);
                 $run->increment('skipped');
@@ -152,7 +152,7 @@ final class StartAutomationRun
                 'release_title' => $item['title'] ?? null,
                 'artist_name' => $item['primary_artist'] ?? null,
                 'track_count' => max(1, (int) ($item['track_count'] ?? 1)),
-                'metadata_snapshot_json' => ['uploaded_at' => $item['uploaded_at'] ?? null, 'pending_order' => $position],
+                'metadata_snapshot_json' => ['uploaded_at' => $item['uploaded_at'] ?? null, 'release_date' => $item['release_date'] ?? null, 'pending_order' => $position],
                 'status' => $isBlocked ? ReleaseJobStatus::NeedsAttention : ReleaseJobStatus::Queued,
                 'checkpoint' => ReleaseCheckpoint::Discovered,
                 'progress_percent' => 5,

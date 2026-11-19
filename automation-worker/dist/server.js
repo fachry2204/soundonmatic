@@ -6,7 +6,7 @@ import { authSelectors } from "./selectors/auth.js";
 import { assertDraftOnly } from "./guards/draft-only.js";
 import { loadRegistry } from "./selectors/registry.js";
 import { extractRelease, extractReleaseLyrics } from "./soundfresh/extract.js";
-import { oldestUploadedFirst, uploadedAtIso } from './soundfresh/pending-order.js';
+import { earliestReleaseFirst, uploadedAtIso } from './soundfresh/pending-order.js';
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
 import { reserveDraftCreation } from './soundon/draft-creation-guard.js';
@@ -18,6 +18,9 @@ import { rejectSoundfreshRelease } from "./soundfresh/reject-release.js";
 import { moveSoundfreshReleaseToUploading } from "./soundfresh/upload-release.js";
 import { moveSoundfreshReleaseToUnderReview } from "./soundfresh/review-release.js";
 import { ensureSoundfreshEnglish } from './soundfresh/language.js';
+import { scanProtectedReleases } from './soundfresh/protected-release-scan.js';
+import { readDraftInventory } from './soundon/draft-inventory.js';
+import { acquireSoundOnPage, soundOnSessionInUse } from './browser/shared-soundon.js';
 const app = Fastify({
     logger: {
         redact: [
@@ -30,19 +33,24 @@ const app = Fastify({
 });
 const jobs = new Map();
 const activeJobContexts = new Map();
+const activeSoundOnPages = new Map();
+const activeSoundOnStatusPages = new Set();
 const activeStatusContexts = new Set();
 const browserLimitedPaths = new Set([
     "/v1/soundfresh/pending",
+    "/v1/soundfresh/protected-scan",
     "/v1/soundfresh/releases/extract",
     "/v1/soundon/drafts/find",
     "/v1/soundon/drafts/find-many",
+    "/v1/soundon/drafts/inventory",
+    "/v1/soundon/drafts/delete-one",
     "/v1/soundon/reviews",
     "/v1/soundfresh/releases/verify-identifiers",
     "/v1/soundfresh/releases/upload-release",
     "/v1/soundon/drafts/create",
     "/v1/selectors/discover",
 ]);
-const browserConcurrency = Math.max(1, Number.parseInt(process.env.AUTOMATION_BROWSER_CONCURRENCY ?? "2", 10) || 2);
+const browserConcurrency = Math.min(3, Math.max(1, Number.parseInt(process.env.AUTOMATION_BROWSER_CONCURRENCY ?? "3", 10) || 3));
 let activeBrowserOperations = 0;
 const browserWaiters = [];
 async function acquireBrowserSlot() {
@@ -102,9 +110,11 @@ app.post("/v1/sessions/validate", async (req) => {
     const body = req.body;
     if (!['soundfresh', 'soundon'].includes(body.platform))
         throw new Error('INVALID_PLATFORM');
-    const browser = await sessionContext(body.session_state);
+    const sharedLease = body.platform === 'soundon' && body.session_state?.cookies?.length
+        ? await acquireSoundOnPage(body.session_state) : null;
+    const browser = sharedLease?.context ?? await sessionContext(body.session_state);
     try {
-        const page = await browser.newPage();
+        const page = sharedLease?.page ?? await browser.newPage();
         await page.goto(body.platform === 'soundfresh' ? `${baseUrl('soundfresh')}/admin/releases` : `${baseUrl('soundon')}/library/list`, {
             waitUntil: "domcontentloaded",
         });
@@ -114,7 +124,10 @@ app.post("/v1/sessions/validate", async (req) => {
                 ...(status === 'valid' ? { session_state: await browser.storageState({ indexedDB: true }) } : {}) } };
     }
     finally {
-        await closeContext(browser);
+        if (sharedLease)
+            await sharedLease.release();
+        else
+            await closeContext(browser);
     }
 });
 app.post("/v1/sessions/login", async (req, reply) => {
@@ -125,6 +138,9 @@ app.post("/v1/sessions/login", async (req, reply) => {
         return reply
             .code(422)
             .send({ success: false, error: "INVALID_LOGIN_REQUEST" });
+    if (body.platform === 'soundon' && soundOnSessionInUse()) {
+        return reply.code(409).send({ success: false, error: 'SOUNDON_SESSION_IN_USE:Wait for active uploads before logging in again.' });
+    }
     // Normal authentication is background-only. A genuine OTP/CAPTCHA is
     // reported to the operator instead of displaying a surprise login window.
     const browser = await sessionContext(undefined, { headless: true });
@@ -209,6 +225,22 @@ app.post("/v1/sessions/login", async (req, reply) => {
                 landing_url: page.url(),
             },
         };
+    }
+    finally {
+        await closeContext(browser);
+    }
+});
+app.post('/v1/soundfresh/protected-scan', async (req, reply) => {
+    const body = req.body;
+    const browser = await sessionContext(body?.session_state);
+    try {
+        const page = await browser.newPage();
+        await page.goto(process.env.SOUNDFRESH_RELEASES_URL ?? 'https://cms.soundfresh.id/v2/admin/releases');
+        if (/\/login/i.test(page.url()))
+            return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
+        await ensureSoundfreshEnglish(page);
+        const scans = await scanProtectedReleases(page);
+        return { success: true, data: { scans, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
         await closeContext(browser);
@@ -329,8 +361,8 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             // calls the same value "Planned Release Date".
             const releaseDateIndex = headers.findIndex((value) => /(?:planned\s*)?release\s*date/.test(value));
             const uploadedIndex = headers.findIndex((value) => /\b(?:upload(?:ed)?\s*(?:at|add|date)|date\s*uploaded|uploaded)\b/i.test(value));
-            if (requestedStatus === 'pending' && uploadedIndex < 0)
-                throw new Error('SOUNDFRESH_UI_CHANGED:uploaded_date_column: Kolom Uploaded At/Add tidak ditemukan; urutan upload tidak dapat dipastikan.');
+            if (requestedStatus === 'pending' && releaseDateIndex < 0)
+                throw new Error('SOUNDFRESH_UI_CHANGED:release_date_column: Kolom Release Date tidak ditemukan; urutan upload tidak dapat dipastikan.');
             const rows = await table.locator("tbody tr").all();
             for (const row of rows) {
                 const rawCells = await row.locator("td").allInnerTexts();
@@ -470,7 +502,7 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             pagesRead,
             collectedItems: items.length,
         }, "Soundfresh release collection completed");
-        const orderedItems = requestedStatus === 'pending' ? oldestUploadedFirst(items).slice(0, max) : items;
+        const orderedItems = requestedStatus === 'pending' ? earliestReleaseFirst(items).slice(0, max) : items;
         return { success: true, data: { items: orderedItems, has_more: false, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
@@ -569,19 +601,27 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
         || `${baseUrl("soundon")}/library/publish/single`;
     const draftsUrl = process.env.SOUNDON_DRAFTS_URL?.trim()
         || `${baseUrl("soundon")}/library/list?type=draft`;
-    const browser = await sessionContext(body.session_state);
-    if (jobs.get(id)?.cancelled) {
-        await closeContext(browser);
-        return reply.code(409).send({ success: false, error: "JOB_CANCELLED" });
-    }
     const releaseReservation = reserveDraftCreation(duplicateTitle, duplicateArtist);
     if (!releaseReservation) {
-        await closeContext(browser);
         return reply.code(409).send({ success: false, error: 'DRAFT_CREATION_IN_PROGRESS:Judul dan artis yang sama sedang diproses; draft baru tidak dibuat.' });
     }
-    activeJobContexts.set(id, browser);
+    let lease;
     try {
-        const page = await browser.newPage();
+        lease = await acquireSoundOnPage(body.session_state);
+    }
+    catch (error) {
+        releaseReservation();
+        throw error;
+    }
+    const browser = lease.context;
+    const page = lease.page;
+    if (jobs.get(id)?.cancelled) {
+        await lease.release();
+        releaseReservation();
+        return reply.code(409).send({ success: false, error: 'JOB_CANCELLED' });
+    }
+    activeSoundOnPages.set(id, page);
+    try {
         // Last, authoritative duplicate guard inside the create request. This
         // closes the race between the queue-level lookup and opening SoundOn's
         // creation form.
@@ -654,13 +694,80 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
         }
     }
     finally {
-        activeJobContexts.delete(id);
+        activeSoundOnPages.delete(id);
         try {
-            await closeContext(browser);
+            await lease.release();
         }
         finally {
             releaseReservation();
         }
+    }
+});
+app.post('/v1/soundon/drafts/delete-one', async (req, reply) => {
+    const body = req.body;
+    if (!/^\d{10,}$/.test(String(body?.draft_id ?? '')) || typeof body?.title !== 'string' || !body.title.trim()) {
+        return reply.code(422).send({ success: false, error: 'DRAFT_IDENTITY_REQUIRED' });
+    }
+    const lease = await acquireSoundOnPage(body.session_state);
+    const browser = lease.context;
+    try {
+        const page = lease.page;
+        await page.goto(process.env.SOUNDON_DRAFTS_URL?.trim() || `${baseUrl('soundon')}/library/list?type=drafts`, { waitUntil: 'domcontentloaded' });
+        if (/login|sign-in/i.test(page.url()))
+            return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
+        const search = page.locator('#title:visible').first();
+        await search.waitFor({ state: 'visible', timeout: 20000 });
+        await search.fill(body.title);
+        await search.press('Enter');
+        const row = page.locator('tr.semi-table-row:visible').filter({ has: page.locator('.so-album-preview-item-title-text', { hasText: body.title }) });
+        const target = row.and(page.locator(`tr[data-row-key="${body.draft_id}"]`));
+        await target.waitFor({ state: 'visible', timeout: 20000 });
+        const title = (await target.locator('.so-album-preview-item-title-text').innerText()).trim();
+        if (title !== body.title.trim() || await target.count() !== 1)
+            throw new Error('DRAFT_DELETE_IDENTITY_UNCONFIRMED');
+        const buttons = target.locator('[aria-colindex="7"] button');
+        if (await buttons.count() !== 2)
+            throw new Error('DRAFT_DELETE_CONTROL_UNCONFIRMED');
+        // Open the row's trash action only after the server-side preflight and
+        // explicit operator confirmation; never use the bulk delete control.
+        await buttons.nth(1).click();
+        const dialog = page.locator('[role="dialog"]:visible, .semi-popconfirm:visible, .semi-modal:visible').filter({ hasText: /delete|remove/i });
+        await Promise.race([
+            dialog.first().waitFor({ state: 'visible', timeout: 15000 }),
+            target.waitFor({ state: 'hidden', timeout: 15000 }),
+        ]);
+        if (await dialog.count()) {
+            const confirm = dialog.last().getByRole('button', { name: /^(delete|remove|confirm|yes)$/i });
+            if (await confirm.count() !== 1)
+                throw new Error('DRAFT_DELETE_CONFIRMATION_UNCONFIRMED');
+            await confirm.click();
+        }
+        await target.waitFor({ state: 'hidden', timeout: 20000 });
+        // A hidden row alone can mean a loading screen or changed filter.
+        // Confirm against a newly read, complete Drafts inventory instead.
+        const remaining = await readDraftInventory(page);
+        if (remaining.some(draft => draft.draft_id === body.draft_id))
+            throw new Error('DRAFT_DELETE_NOT_CONFIRMED');
+        return { success: true, data: { deleted: true, session_state: await browser.storageState({ indexedDB: true }) } };
+    }
+    finally {
+        await lease.release();
+    }
+});
+app.post('/v1/soundon/drafts/inventory', async (req, reply) => {
+    const body = req.body;
+    const lease = await acquireSoundOnPage(body?.session_state);
+    const browser = lease.context;
+    try {
+        const page = lease.page;
+        await page.goto(process.env.SOUNDON_DRAFTS_URL?.trim() || `${baseUrl('soundon')}/library/list?type=drafts`, { waitUntil: 'domcontentloaded' });
+        if (/login|sign-in/i.test(page.url()))
+            return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
+        const drafts = await readDraftInventory(page);
+        return { success: true, data: { drafts, session_state: await browser.storageState({ indexedDB: true }) } };
+    }
+    finally {
+        await lease.release();
     }
 });
 app.post("/v1/soundon/drafts/find", async (req, reply) => {
@@ -670,9 +777,10 @@ app.post("/v1/soundon/drafts/find", async (req, reply) => {
     }
     const configuredUrl = process.env.SOUNDON_DRAFTS_URL?.trim();
     const urls = [configuredUrl || `${baseUrl("soundon")}/library/list?type=draft`];
-    const browser = await sessionContext(body.session_state);
+    const lease = await acquireSoundOnPage(body.session_state);
+    const browser = lease.context;
     try {
-        const page = await browser.newPage();
+        const page = lease.page;
         for (const url of urls) {
             await page.goto(url, { waitUntil: "domcontentloaded" });
             await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
@@ -686,7 +794,7 @@ app.post("/v1/soundon/drafts/find", async (req, reply) => {
         return { success: true, data: { found: false, session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
-        await closeContext(browser);
+        await lease.release();
     }
 });
 app.post("/v1/soundon/drafts/find-many", async (req, reply) => {
@@ -694,9 +802,10 @@ app.post("/v1/soundon/drafts/find-many", async (req, reply) => {
     const lookups = Array.isArray(body.items) ? body.items.filter((item) => typeof item?.key === "string" && typeof item?.title === "string" && typeof item?.artist === "string") : [];
     if (!lookups.length)
         return { success: true, data: { matches: {} } };
-    const browser = await sessionContext(body.session_state);
+    const lease = await acquireSoundOnPage(body.session_state);
+    const browser = lease.context;
     try {
-        const page = await browser.newPage();
+        const page = lease.page;
         await page.goto(process.env.SOUNDON_DRAFTS_URL?.trim() || `${baseUrl("soundon")}/library/list?type=draft`, { waitUntil: "domcontentloaded" });
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
@@ -704,7 +813,7 @@ app.post("/v1/soundon/drafts/find-many", async (req, reply) => {
         return { success: true, data: { matches: await findDrafts(page, lookups), session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
-        await closeContext(browser);
+        await lease.release();
     }
 });
 app.post("/v1/soundon/reviews", async (req, reply) => {
@@ -712,10 +821,11 @@ app.post("/v1/soundon/reviews", async (req, reply) => {
     const lookups = Array.isArray(body.items) ? body.items.filter((item) => typeof item?.key === "string" && typeof item?.title === "string" && typeof item?.artist === "string") : [];
     if (!lookups.length)
         return { success: true, data: { matches: {} } };
-    const browser = await sessionContext(body.session_state);
-    activeStatusContexts.add(browser);
+    const lease = await acquireSoundOnPage(body.session_state);
+    const browser = lease.context;
+    activeSoundOnStatusPages.add(lease.page);
     try {
-        const page = await browser.newPage();
+        const page = lease.page;
         await page.goto(process.env.SOUNDON_RELEASES_URL?.trim() || baseUrl("soundon") + "/library/list", { waitUntil: "domcontentloaded" });
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
@@ -729,8 +839,8 @@ app.post("/v1/soundon/reviews", async (req, reply) => {
         return reply.code(501).send({ success: false, error: code });
     }
     finally {
-        activeStatusContexts.delete(browser);
-        await closeContext(browser);
+        activeSoundOnStatusPages.delete(lease.page);
+        await lease.release();
     }
 });
 app.post("/v1/soundon/releases/statuses", async (req, reply) => {
@@ -738,10 +848,11 @@ app.post("/v1/soundon/releases/statuses", async (req, reply) => {
     const lookups = Array.isArray(body.items) ? body.items.filter((item) => typeof item?.key === "string" && typeof item?.title === "string" && typeof item?.artist === "string") : [];
     if (!lookups.length)
         return { success: true, data: { matches: {} } };
-    const browser = await sessionContext(body.session_state);
-    activeStatusContexts.add(browser);
+    const lease = await acquireSoundOnPage(body.session_state);
+    const browser = lease.context;
+    activeSoundOnStatusPages.add(lease.page);
     try {
-        const page = await browser.newPage();
+        const page = lease.page;
         await page.goto(process.env.SOUNDON_RELEASES_URL?.trim() || `${baseUrl("soundon")}/library/list`, { waitUntil: "domcontentloaded" });
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
@@ -756,8 +867,8 @@ app.post("/v1/soundon/releases/statuses", async (req, reply) => {
         return { success: true, data: { matches: await findReleaseStatuses(page, lookups, body.strict_artist === true), session_state: await browser.storageState({ indexedDB: true }) } };
     }
     finally {
-        activeStatusContexts.delete(browser);
-        await closeContext(browser);
+        activeSoundOnStatusPages.delete(lease.page);
+        await lease.release();
     }
 });
 app.post("/v1/soundfresh/releases/review", async (req, reply) => {
@@ -1411,17 +1522,24 @@ app.post("/v1/jobs/:jobId/cancel", async (req) => {
         if (activeJobContexts.get(id) === active)
             activeJobContexts.delete(id);
     }
+    const soundOnPage = activeSoundOnPages.get(id);
+    if (soundOnPage)
+        await soundOnPage.close().catch(() => undefined);
     return { success: true, data: jobs.get(id) };
 });
 app.post("/v1/jobs/:jobId/prepare", async (req, reply) => {
     const id = String(req.params.jobId);
-    if (activeJobContexts.has(id)) {
+    if (activeJobContexts.has(id) || activeSoundOnPages.has(id)) {
         return reply.code(409).send({ success: false, error: "JOB_ALREADY_RUNNING" });
     }
     jobs.set(id, { status: "ready", cancelled: false, updatedAt: new Date().toISOString() });
     return { success: true, data: jobs.get(id) };
 });
 app.post("/v1/jobs/cancel-all", async () => {
+    await Promise.allSettled([...activeSoundOnPages.values()].map(page => page.close()));
+    activeSoundOnPages.clear();
+    await Promise.allSettled([...activeSoundOnStatusPages.values()].map(page => page.close()));
+    activeSoundOnStatusPages.clear();
     const contexts = [...new Set([...activeJobContexts.values(), ...activeStatusContexts.values()])];
     activeJobContexts.clear();
     activeStatusContexts.clear();

@@ -3,6 +3,16 @@ import { chromium } from 'playwright';
 import { moveSoundfreshReleaseToUnderReview } from './review-release.js';
 
 describe('Soundfresh Review Release', () => {
+    it('waits for a delayed Review Release button before reporting it missing', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<button>EN</button><span class="badge">Pending</span><div id="action"></div>
+                <script>setTimeout(() => { const button = document.createElement('button'); button.textContent = 'Review Release'; button.onclick = () => { document.querySelector('.badge').textContent = 'Under Review'; button.remove(); }; document.querySelector('#action').appendChild(button); }, 1200)</script>`);
+            await moveSoundfreshReleaseToUnderReview(page, 'SoundOn', 'draft-1');
+            expect(await page.locator('.badge').innerText()).toBe('Under Review');
+        } finally { await browser.close(); }
+    }, 15000);
     it('clicks the split-button primary Review Release once and accepts its native confirmation without opening the menu', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
@@ -75,5 +85,5 @@ describe('Soundfresh Review Release', () => {
             await page.setContent('<button>EN</button><a>Under Review</a><span class="badge">Pending</span>');
             await expect(moveSoundfreshReleaseToUnderReview(page, 'SoundOn', 'draft-3')).rejects.toThrow('review_release_button');
         } finally { await browser.close(); }
-    }, 10000);
+    }, 15000);
 });

@@ -5,6 +5,7 @@ import { locate, readField, valueAt } from "../selectors/registry.js";
 import { assertDraftOnly } from "../guards/draft-only.js";
 import { findDraft } from "./draft-finder.js";
 import { orderedAlbumTracks, assertAlbumOrder } from "./album-order.js";
+import { confirmAlbumDraft } from './album-draft-confirmation.js';
 
 const forbidden = /submit|publish|distribute|send for review|release now/i;
 const entityResultTimeout = 20_000;
@@ -663,8 +664,10 @@ async function createKnownSoundOnAlbumDraft(
     // its release list renders returns a false negative on a blank spinner.
     await page.getByText(/^Drafts?(?:\s+\d+)?$/i, { exact: true }).filter({ visible: true }).first()
         .waitFor({ state: "visible", timeout: 45_000 });
-    const found = await findDraft(page, String(metadata.title ?? tracks[0]?.title ?? ""), String(metadata.primary_artist ?? tracks[0]?.primary_artist ?? ""));
-    if (!found) throw new Error("DRAFT_SAVE_NOT_CONFIRMED");
+    const found = await confirmAlbumDraft(
+        () => findDraft(page, String(metadata.title ?? tracks[0]?.title ?? ""), String(metadata.primary_artist ?? tracks[0]?.primary_artist ?? "")),
+        () => page.waitForTimeout(2_000),
+    );
     stage('completed');
     return found;
 }

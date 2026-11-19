@@ -6,8 +6,13 @@ export function uploadedAtIso(value: string): string | null {
     return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
-export function oldestUploadedFirst<T extends { uploaded_at: string | null }>(items: T[]): T[] {
+export function earliestReleaseFirst<T extends { release_date: string | null }>(items: T[]): T[] {
+    const priority = (value: string | null): number => {
+        if (!value || !value.trim()) return Number.POSITIVE_INFINITY;
+        const date = Date.parse(value);
+        return Number.isFinite(date) ? date : Number.POSITIVE_INFINITY;
+    };
     return items.map((item, index) => ({ item, index }))
-        .sort((a, b) => (a.item.uploaded_at ?? '\uffff').localeCompare(b.item.uploaded_at ?? '\uffff') || a.index - b.index)
+        .sort((a, b) => priority(a.item.release_date) - priority(b.item.release_date) || a.index - b.index)
         .map(({ item }) => item);
 }
