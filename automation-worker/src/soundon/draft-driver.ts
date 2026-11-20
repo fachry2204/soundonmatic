@@ -2071,7 +2071,7 @@ async function setSearchFieldValue(
                         await page.waitForTimeout(500);
                     }
                 }
-                await add.click({ force: true });
+                await clickEntityControl(add);
                 // The add-artist modal heading has changed between SoundOn
                 // builds ("Add ...", "Primary artists", or a generic title).
                 // Prefer the old heading, then fall back to the visible modal
@@ -2109,7 +2109,7 @@ async function setSearchFieldValue(
                     } else if (contributorRole) {
                         if ((await selectControl.count()) < 2)
                             throw new Error(`SOUNDON_UI_CHANGED:contributor_controls:${label}`);
-                        await selectControl.first().locator("..").click({ force: true });
+                        await clickEntityControl(selectControl.first());
                         await page.waitForTimeout(300);
                         const exactRole = new RegExp(`^${escapeRegExp(contributorRole)}$`, "i");
                         const roleOption = page.locator(".semi-select-option-text")
@@ -2132,14 +2132,11 @@ async function setSearchFieldValue(
                             else await page.keyboard.press("Escape").catch(() => undefined);
                             return;
                         }
-                        await resilientClick(roleOption.first());
+                        await clickEntityControl(roleOption.first());
                         await page.waitForTimeout(300);
-                        await selectControl.nth(1).evaluate((element) => {
-                            const select = element.closest(".semi-select");
-                            (select as HTMLElement | null)?.click();
-                        });
+                        await clickEntityControl(selectControl.nth(1));
                     } else {
-                        await selectControl.first().click({ force: true });
+                        await clickEntityControl(selectControl.first());
                     }
                     await page.waitForTimeout(300);
                 }
@@ -2202,13 +2199,13 @@ async function setSearchFieldValue(
                                 // Semi controls may commit on pointer/mousedown.
                                 // HTMLElement.click() skips those events and can
                                 // leave the required Artist name value empty.
-                                await resilientClick(currentArtistNames.nth(matchingArtistIndex));
+                                await clickEntityControl(currentArtistNames.nth(matchingArtistIndex));
                                 entitySelected = true;
                                 break;
                             }
                             const option = entityScope.getByRole("option", { name: exactValue }).filter({ visible: true });
                             if (await option.count()) {
-                                await resilientClick(option.first());
+                                await clickEntityControl(option.first());
                                 entitySelected = true;
                                 break;
                             }
@@ -2216,7 +2213,7 @@ async function setSearchFieldValue(
                                 .locator(".semi-select-option:visible")
                                 .filter({ hasText: exactValue });
                             if (await semiOption.count()) {
-                                await resilientClick(semiOption.first());
+                                await clickEntityControl(semiOption.first());
                                 entitySelected = true;
                                 break;
                             }
@@ -2224,7 +2221,7 @@ async function setSearchFieldValue(
                                 .locator("[artistname]:visible")
                                 .filter({ hasText: exactValue });
                             if (await entityOption.count()) {
-                                await resilientClick(entityOption.first());
+                                await clickEntityControl(entityOption.first());
                                 entitySelected = true;
                                 break;
                             }
@@ -2233,7 +2230,7 @@ async function setSearchFieldValue(
                                 .getByText(value, { exact: true })
                                 .filter({ visible: true });
                             if ((await exactTextOption.count()) === 1) {
-                                await resilientClick(exactTextOption);
+                                await clickEntityControl(exactTextOption);
                                 entitySelected = true;
                                 break;
                             }
@@ -2263,7 +2260,7 @@ async function setSearchFieldValue(
                                 .getByText(new RegExp(`^(?:Create|Add)(?: new)?(?: artist)?\\s*["“']?${escapedValue}["”']?$`, "i"))
                                 .filter({ visible: true });
                             if (await createOption.count()) {
-                                await resilientClick(createOption.first());
+                                await clickEntityControl(createOption.first());
                                 entitySelected = true;
                                 createdEntity = true;
                                 break;
@@ -2528,7 +2525,7 @@ export async function retryMissingContributorName(page: Page, dialog: Locator, v
     if (!await controls.count()) controls = dialog.locator('[role="combobox"]:visible');
     if (await controls.count() < 2) return false;
     const nameControl = controls.nth(1);
-    await nameControl.click();
+    await clickEntityControl(nameControl);
     const search = page.locator('.semi-select-open:visible input[type="text"]:visible,.semi-select-focus:visible input[type="text"]:visible,.semi-portal input[type="text"]:visible').last();
     await search.waitFor({ state: 'visible', timeout: 8000 }).catch(() => undefined);
     if (!await search.isVisible().catch(() => false)) return false;
@@ -2549,7 +2546,7 @@ export async function retryMissingContributorName(page: Page, dialog: Locator, v
             return elements.findIndex(element => normalize(element.textContent ?? '') === normalize(String(expected)));
         }, value);
         if (index >= 0) {
-            await options.nth(index).click();
+            await clickEntityControl(options.nth(index));
             return true;
         }
         await page.waitForTimeout(100);
@@ -2644,6 +2641,27 @@ async function resilientClick(locator: Locator): Promise<void> {
         if (!(await locator.isVisible().catch(() => false))) throw error;
         await locator.evaluate((element: HTMLElement) => element.click());
     }
+}
+
+/** Entity controls must receive real pointer events, even in a scrolled modal.
+ * Never force-click or use HTMLElement.click(): Semi may only commit on mousedown.
+ * Retry only a failed click, never a successful Submit or draft creation.
+ */
+export async function clickEntityControl(locator: Locator): Promise<void> {
+    let failure: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            await locator.waitFor({ state: 'visible', timeout: 3000 });
+            await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+            await locator.click({ timeout: 3000 });
+            return;
+        } catch (error) {
+            failure = error;
+            if (locator.page().isClosed()) throw error;
+            await locator.page().waitForTimeout(200 * (attempt + 1));
+        }
+    }
+    throw new Error(`SOUNDON_UI_CHANGED:entity_control_not_clickable:${failure instanceof Error ? failure.message : String(failure)}`);
 }
 
 export async function waitForEntityCard(
