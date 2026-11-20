@@ -9,6 +9,18 @@ const statuses = [
     { value: "live", label: /\blive\b/i },
 ];
 export const detectReleaseStatus = (text) => statuses.find((status) => status.label.test(text))?.value ?? null;
+async function statusFromCandidate(candidate) {
+    const text = await candidate.evaluate(element => {
+        const headers = Array.from(element.closest('table,[role="grid"]')?.querySelectorAll('thead th,thead td,[role="columnheader"]') ?? []);
+        const cells = Array.from(element.querySelectorAll(':scope > td,:scope > [role="cell"],:scope > [role="gridcell"]'));
+        const column = headers.findIndex(header => /^(?:release\s*)?status$/i.test((header.textContent ?? '').trim()));
+        if (column >= 0 && cells[column])
+            return cells[column].innerText;
+        // Avoid reading a release titled "Live" or "Not Approved" as its status.
+        return cells.length > 1 ? cells.slice(1).map(cell => cell.innerText).join('\n') : element.innerText;
+    });
+    return detectReleaseStatus(text);
+}
 const normalize = (value) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
 const comparable = (value) => normalize(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const unique = (values) => [...new Set(values)];
@@ -129,41 +141,90 @@ async function search(page, title) {
         input = page.getByRole("textbox").filter({ visible: true }).first();
     if (!await input.count())
         throw new Error("SOUNDON_SEARCH_UNCONFIRMED:search_input_missing");
-    const previousQuery = await input.inputValue();
-    const emptyIndicator = page.locator('.semi-empty, .ant-empty, [role="status"], td, [class*="empty" i]')
-        .filter({ visible: true, hasText: /\b(no (?:data|results?|releases?|records?)|nothing found|no matching releases?)\b/i });
-    const oldEmpty = await emptyIndicator.count() > 0;
-    await input.fill(title);
-    await input.press("Enter").catch(() => undefined);
+    const pending = new Set();
+    let failedRequest = false;
+    let completedRequests = 0;
+    const onRequest = (request) => {
+        if (!['fetch', 'xhr'].includes(request.resourceType()))
+            return;
+        const path = new URL(request.url()).pathname;
+        if (/analytics|telemetry|collect|monitor|report|\/log\b|\/event\b/i.test(path))
+            return;
+        pending.add(request);
+    };
+    const onFinished = (request) => { if (pending.delete(request))
+        completedRequests++; };
+    const onFailed = (request) => { if (pending.delete(request))
+        failedRequest = true; };
+    const onResponse = (response) => { if (pending.has(response.request()) && response.status() >= 400)
+        failedRequest = true; };
+    page.on('request', onRequest);
+    page.on('requestfinished', onFinished);
+    page.on('requestfailed', onFailed);
+    page.on('response', onResponse);
     // A fast read can observe the previous search results while SoundOn is
     // debouncing or fetching. Only trust a matching result or an explicit
     // empty state, never the mere absence of a row after a fixed delay.
-    await page.waitForTimeout(600);
+    const started = Date.now();
+    let lastEmpty = '';
+    let emptySince = started;
     try {
-        await page.waitForFunction(({ query, acceptEmpty }) => {
-            const visible = (element) => {
-                const node = element;
-                return !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
-            };
-            const busy = Array.from(document.querySelectorAll('[aria-busy="true"], [role="progressbar"], .semi-spin-spinning, .ant-spin-spinning'))
-                .some(visible);
-            if (busy)
-                return false;
-            const clean = (value) => value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-            const wanted = clean(query);
-            const rows = Array.from(document.querySelectorAll('tr, [role="row"]')).filter(visible);
-            if (rows.some(row => {
-                const text = row.innerText || '';
-                const lines = text.split(/\r?\n/).map(clean);
-                return lines.includes(wanted) || (` ${clean(text)} `).includes(` ${wanted} `);
-            }))
-                return true;
-            return acceptEmpty && Array.from(document.querySelectorAll('.semi-empty, .ant-empty, [role="status"], td, [class*="empty" i]'))
-                .filter(visible).some(element => /\b(no (?:data|results?|releases?|records?)|nothing found|no matching releases?)\b/i.test(element.innerText || ''));
-        }, { query: title, acceptEmpty: !oldEmpty || normalize(previousQuery) === normalize(title) }, { timeout: 15_000 });
+        await input.fill(title);
+        await input.press("Enter").catch(() => undefined);
+        while (Date.now() - started < 20_000) {
+            const state = await page.evaluate((query) => {
+                const visible = (element) => {
+                    const node = element;
+                    return !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
+                };
+                const busy = Array.from(document.querySelectorAll('[aria-busy="true"], [role="progressbar"], .semi-spin-spinning, .ant-spin-spinning'))
+                    .some(visible);
+                const clean = (value) => value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+                const wanted = clean(query);
+                const rows = Array.from(document.querySelectorAll('tr, [role="row"]')).filter(visible);
+                const matching = rows.some(row => {
+                    const text = row.innerText || '';
+                    const lines = text.split(/\r?\n/).map(clean);
+                    return lines.includes(wanted) || (` ${clean(text)} `).includes(` ${wanted} `);
+                });
+                const empty = Array.from(document.querySelectorAll('.semi-empty, .ant-empty, [role="status"], td, [class*="empty" i]'))
+                    .filter(visible).some(element => /\b(no (?:data|results?|releases?|records?)|nothing found|no matching releases?)\b/i.test(element.innerText || ''));
+                const currentQuery = new URL(location.href).searchParams.get('searchKey');
+                return { busy, matching, empty, queryBound: currentQuery !== null, queryApplied: currentQuery === null || clean(currentQuery) === wanted,
+                    hasRows: rows.some(row => row.querySelector('td,[role="cell"],[role="gridcell"]')),
+                    rows: rows.map(row => row.innerText || '').join('\n'), path: location.pathname };
+            }, title);
+            if (/login|sign-in/i.test(state.path))
+                throw new Error('AUTH_SESSION_EXPIRED');
+            if (!state.busy && state.queryApplied && state.matching && !pending.size && !failedRequest)
+                return;
+            const snapshot = JSON.stringify([state.rows, state.empty, state.queryApplied]);
+            if (state.busy || pending.size || snapshot !== lastEmpty)
+                emptySince = Date.now();
+            lastEmpty = snapshot;
+            // SoundOn searches individual words, so a valid result page can list
+            // similar titles before the exact match on a later page. Its applied
+            // URL query plus a finished request and settled rows confirms that
+            // search; requiring the full phrase here prevented pagination.
+            const settledResults = state.empty || (state.queryBound && state.hasRows && completedRequests > 0);
+            if (!state.busy && !pending.size && !failedRequest && state.queryApplied && settledResults && Date.now() - started >= 2500 && Date.now() - emptySince >= 1500)
+                return;
+            await page.waitForTimeout(200);
+        }
+        throw new Error('search timeout');
     }
-    catch {
+    catch (error) {
+        if (error instanceof Error && error.message === 'AUTH_SESSION_EXPIRED')
+            throw error;
+        console.warn(JSON.stringify({ event: 'soundon_search_unconfirmed', query: title,
+            rows: (await page.locator('tr:visible,[role="row"]:visible').allInnerTexts().catch(() => [])).slice(0, 3) }));
         throw new Error(`SOUNDON_SEARCH_UNCONFIRMED:SoundOn belum menampilkan hasil atau informasi kosong untuk pencarian "${title}"`);
+    }
+    finally {
+        page.off('request', onRequest);
+        page.off('requestfinished', onFinished);
+        page.off('requestfailed', onFailed);
+        page.off('response', onResponse);
     }
 }
 async function nextPage(page) {
@@ -176,6 +237,8 @@ async function nextPage(page) {
         'a[title*="next" i]:visible',
         '[class*="pagination" i] button:visible',
         '[class*="pagination" i] a:visible',
+        '.semi-page-next:visible',
+        '.semi-pagination-next:visible',
     ].join(","));
     const count = await candidates.count();
     let next = null;
@@ -208,7 +271,7 @@ async function nextPage(page) {
     }
     throw new Error('SOUNDON_SEARCH_UNCONFIRMED:Halaman hasil SoundOn tidak berubah setelah tombol berikutnya ditekan.');
 }
-async function candidateFor(page, title, artist, strictArtist = false) {
+export async function candidateFor(page, title, artist, strictArtist = false) {
     const wantedTitle = comparable(title);
     const wantedArtist = comparable(artist);
     // Do not union every possible row/card selector: a single release is often
@@ -243,17 +306,30 @@ async function candidateFor(page, title, artist, strictArtist = false) {
             // innerText rather than newlines. Match the title as a bounded
             // phrase across the row text as well as as a standalone line.
             const rowText = ` ${comparableBrowser(raw)} `;
-            const cells = Array.from(element.querySelectorAll(':scope > td, :scope > [role="cell"]'));
-            const titleParts = cells.length ? (cells[0].innerText || '').split(/\r?\n|\t/) : raw.split(/\r?\n|\t/);
+            const cells = Array.from(element.querySelectorAll(':scope > td, :scope > [role="cell"], :scope > [role="gridcell"]'));
+            const titleNodes = Array.from(element.querySelectorAll('.so-album-preview-item-title-text,.so-album-preview-item-title,[data-release-title]'));
+            // Drafts include a checkbox column; All Releases may omit it. Use
+            // the title component/header instead of assuming cell zero.
+            const headers = Array.from(element.closest('table,[role="grid"]')?.querySelectorAll('thead th,thead td,[role="columnheader"]') ?? []);
+            const titleColumn = headers.findIndex(header => /^(?:title|release title|album title)$/i.test((header.textContent ?? '').trim()));
+            const titleParts = titleNodes.length
+                ? titleNodes.flatMap(node => [node.textContent ?? '', node.getAttribute('title') ?? '', node.getAttribute('data-release-title') ?? ''])
+                : (titleColumn >= 0 ? [cells[titleColumn]].filter(Boolean) : cells).flatMap(cell => (cell.innerText || '').split(/\r?\n|\t/));
+            if (!cells.length && !titleNodes.length)
+                titleParts.push(...raw.split(/\r?\n|\t/));
             if (!titleParts.map(comparableBrowser).includes(wanted.title))
                 continue;
             titleMatches.push(rowIndex);
-            const artistMatches = lines.some((line) => line === wanted.artist || line.replace(/^primary artists?\s*/, "") === wanted.artist) || (wanted.artist !== "" && rowText.includes(` ${wanted.artist} `));
+            // CSS ellipsis usually preserves textContent. Other layouts expose
+            // the full artist only through a title or accessible label.
+            const fullNames = Array.from(element.querySelectorAll('[title],[aria-label],[artistname],.so-artist-preview-item-artist-name,.semi-tag-content'))
+                .flatMap(node => [node.textContent ?? '', node.getAttribute('title') ?? '', node.getAttribute('aria-label') ?? '', node.getAttribute('artistname') ?? ''])
+                .map(comparableBrowser);
+            const artistMatches = lines.some((line) => line === wanted.artist || line.replace(/^primary artists?\s*/, "") === wanted.artist) || fullNames.includes(wanted.artist) || (wanted.artist !== "" && rowText.includes(` ${wanted.artist} `));
             if (!wanted.artist || artistMatches)
                 return rowIndex;
         }
-        // Soundfresh and SoundOn often format artist credits differently.
-        // An exact title is safe when the filtered result contains only one row.
+        // Never substitute a different artist based on a unique title alone.
         return !wanted.strictArtist && !wanted.artist && titleMatches.length === 1 ? (titleMatches[0] ?? -1) : -1;
     }, { title: wantedTitle, artist: wantedArtist, strictArtist });
     return index >= 0 ? rows.nth(index) : null;
@@ -272,8 +348,7 @@ export async function findReleaseStatuses(page, lookups, strictArtist = false) {
             const candidate = await candidateFor(page, lookup.title, lookup.artist, true);
             if (!candidate)
                 continue;
-            const raw = await candidate.innerText().catch(() => "");
-            const status = detectReleaseStatus(raw) ?? "under_review";
+            const status = await statusFromCandidate(candidate) ?? "under_review";
             matches[lookup.key] = {
                 found: true,
                 status,
@@ -285,28 +360,14 @@ export async function findReleaseStatuses(page, lookups, strictArtist = false) {
         }
         return matches;
     }
-    const inspectCandidate = async (lookup) => {
-        const candidate = await candidateFor(page, lookup.title, lookup.artist, Boolean(normalize(lookup.artist)) || strictArtist);
-        if (!candidate)
-            return false;
-        const raw = await candidate.innerText().catch(() => "");
-        const detectedValue = detectReleaseStatus(raw);
-        const detected = detectedValue ? statuses.find((status) => status.value === detectedValue) : undefined;
-        if (!detected)
-            return false;
-        const url = await releaseUrl(page, candidate);
-        const values = ["delivery", "approved", "live", "not_approved"].includes(detected.value)
-            ? await inspectDetails(page, candidate, url)
-            : { upc: null, isrcs: [], reason: null };
-        matches[lookup.key] = { found: true, status: detected.value, release_url: url, ...values };
-        return true;
-    };
-    const inspectAcrossPages = async (lookup, knownStatus) => {
+    const titlesSeen = new Set();
+    const inspectAcrossPages = async (lookup, knownStatus, paginate = true) => {
         for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
             const candidate = await candidateFor(page, lookup.title, lookup.artist, Boolean(normalize(lookup.artist)) || strictArtist);
+            if (!candidate && await candidateFor(page, lookup.title, ''))
+                titlesSeen.add(lookup.key);
             if (candidate) {
-                const raw = await candidate.innerText().catch(() => "");
-                const detectedValue = knownStatus ?? detectReleaseStatus(raw);
+                const detectedValue = await statusFromCandidate(candidate) ?? knownStatus;
                 const detected = detectedValue ? statuses.find((item) => item.value === detectedValue) : undefined;
                 if (!detected)
                     throw new Error(`SOUNDON_STATUS_UNCONFIRMED:Judul dan artis ditemukan, tetapi status SoundOn tidak dikenali: ${lookup.title} — ${lookup.artist}`);
@@ -319,52 +380,65 @@ export async function findReleaseStatuses(page, lookups, strictArtist = false) {
                     return true;
                 }
             }
-            if (!await nextPage(page))
+            if (!paginate || !await nextPage(page))
                 break;
+            if (pageNumber === 100)
+                throw new Error('SOUNDON_SEARCH_UNCONFIRMED:Batas halaman pemeriksaan tercapai; hasil belum dapat dipastikan.');
         }
         return false;
     };
     const searchTerms = (lookup) => unique([lookup.title.trim(), lookup.artist.trim()].filter(Boolean));
-    // Some SoundOn layouts show all releases in one view and expose status only
-    // as a row badge (without tabs). Inspect the already-rendered rows before
-    // touching the search input; filtering can temporarily detach those rows.
+    // One uncertain release must not discard verified results for the rest of
+    // a batch. Search each title globally before walking its filtered pages.
+    let statusFiltered = false;
     for (const lookup of lookups) {
         if (!normalize(lookup.title))
             continue;
-        await inspectAcrossPages(lookup);
-    }
-    // Search only the titles that were not part of the currently rendered page.
-    for (const lookup of lookups) {
-        if (matches[lookup.key] || !normalize(lookup.title))
-            continue;
-        let uncertain = null;
-        for (const term of searchTerms(lookup)) {
-            try {
-                await search(page, term);
+        try {
+            if (statusFiltered) {
+                if (!await selectStatus(page, /^all\s*(?:releases|status)$/i)) {
+                    throw new Error('SOUNDON_SEARCH_UNCONFIRMED:Filter status SoundOn belum dapat dikembalikan ke All Releases.');
+                }
+                statusFiltered = false;
             }
-            catch (error) {
-                if (!(error instanceof Error) || !error.message.startsWith('SOUNDON_SEARCH_UNCONFIRMED:'))
-                    throw error;
-                uncertain = error;
+            if (await inspectAcrossPages(lookup, undefined, false))
                 continue;
-            }
-            if (await inspectAcrossPages(lookup))
-                break;
-        }
-        if (!matches[lookup.key] && uncertain)
-            throw uncertain;
-    }
-    for (const status of statuses) {
-        if (!await selectStatus(page, status.label))
-            continue;
-        for (const lookup of lookups) {
-            if (matches[lookup.key] || !normalize(lookup.title))
-                continue;
+            let uncertain = null;
             for (const term of searchTerms(lookup)) {
-                await search(page, term);
-                if (await inspectAcrossPages(lookup, status.value))
+                try {
+                    await search(page, term);
+                }
+                catch (error) {
+                    if (!(error instanceof Error) || !error.message.startsWith('SOUNDON_SEARCH_UNCONFIRMED:'))
+                        throw error;
+                    uncertain = error;
+                    continue;
+                }
+                if (await inspectAcrossPages(lookup))
                     break;
             }
+            for (const status of statuses) {
+                if (matches[lookup.key])
+                    break;
+                if (!await selectStatus(page, status.label))
+                    continue;
+                statusFiltered = true;
+                for (const term of searchTerms(lookup)) {
+                    await search(page, term);
+                    if (await inspectAcrossPages(lookup, status.value))
+                        break;
+                }
+            }
+            if (!matches[lookup.key] && titlesSeen.has(lookup.key)) {
+                throw new Error(`SOUNDON_ARTIST_UNCONFIRMED:Judul ditemukan, tetapi nama artis lengkap belum cocok: ${lookup.title} — ${lookup.artist}`);
+            }
+            if (!matches[lookup.key] && uncertain)
+                throw uncertain;
+        }
+        catch (error) {
+            if (page.isClosed() || /AUTH_SESSION_EXPIRED/.test(error instanceof Error ? error.message : ''))
+                throw error;
+            matches[lookup.key] = { found: false, error: error instanceof Error ? error.message : 'SOUNDON_SEARCH_UNCONFIRMED' };
         }
     }
     return matches;
@@ -378,11 +452,6 @@ export async function findLastUpdatedDates(page, lookups) {
             continue;
         await search(page, item.title);
         let candidate = await candidateFor(page, item.title, item.artist, true);
-        // Artist labels can be rendered differently between Soundfresh and
-        // SoundOn. A unique exact-title match is a safe fallback; ambiguous
-        // same-title releases remain unmatched rather than guessing.
-        if (!candidate)
-            candidate = await candidateFor(page, item.title, item.artist, false);
         if (!candidate)
             continue;
         const updated = await candidate.evaluate((element) => {

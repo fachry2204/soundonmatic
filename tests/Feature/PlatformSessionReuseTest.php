@@ -7,10 +7,12 @@ use App\Exceptions\BrowserWorkerException;
 use App\Livewire\Automation\AccountSessions;
 use App\Models\AutomationAccount;
 use App\Models\User;
-use App\Services\Automation\SessionManager;
 use App\Services\Automation\PlaywrightClient;
+use App\Services\Automation\SessionManager;
 use Database\Seeders\AccessControlSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -41,8 +43,12 @@ final class PlatformSessionReuseTest extends TestCase
     {
         $account = $this->account();
         Http::fake(['*/v1/sessions/validate' => Http::response(['success' => true, 'data' => ['valid' => false, 'status' => 'unknown']])]);
-        try { app(SessionManager::class)->ensure(Platform::SoundOn); $this->fail('Expected validation failure'); }
-        catch (BrowserWorkerException $error) { $this->assertSame('session_validation_failed', $error->reason); }
+        try {
+            app(SessionManager::class)->ensure(Platform::SoundOn);
+            $this->fail('Expected validation failure');
+        } catch (BrowserWorkerException $error) {
+            $this->assertSame('session_validation_failed', $error->reason);
+        }
         $this->assertSame('old', $account->fresh()->session_state_encrypted['cookies'][0]['name']);
         Http::assertSentCount(1);
     }
@@ -70,7 +76,8 @@ final class PlatformSessionReuseTest extends TestCase
     public function test_saving_unchanged_credentials_preserves_session(): void
     {
         $this->seed(AccessControlSeeder::class);
-        $admin = User::factory()->create(); $admin->assignRole('Admin');
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
         $account = $this->account();
         Livewire::actingAs($admin)->test(AccountSessions::class)->set('emails.soundon', 'artist@example.com')
             ->set('passwords.soundon', '')->call('saveCredentials', 'soundon')->assertHasNoErrors();
@@ -89,6 +96,45 @@ final class PlatformSessionReuseTest extends TestCase
         $newer = ['cookies' => [['name' => 'newer', 'value' => 'secret']]];
         $account->update(['session_state_encrypted' => $newer]);
         app(PlaywrightClient::class)->pending(null, $old);
+        $this->assertSame($newer, $account->fresh()->session_state_encrypted);
+    }
+
+    public function test_cookie_refresh_retries_a_database_lock_without_repeating_the_platform_operation(): void
+    {
+        $account = $this->account();
+        $old = $account->session_state_encrypted;
+        $new = ['cookies' => [['name' => 'refreshed', 'value' => 'secret']]];
+        Http::fake(['*' => Http::response(['success' => true, 'data' => ['matches' => [], 'session_state' => $new]])]);
+        $collisions = 0;
+        $armed = true;
+        DB::connection()->beforeExecuting(function ($query, $bindings, $connection) use (&$collisions, &$armed): void {
+            if ($armed && str_starts_with($query, 'update "automation_accounts"') && str_contains($query, 'session_state_encrypted')) {
+                $armed = false;
+                $collisions++;
+                throw new QueryException($connection->getName(), $query, $bindings, new \PDOException('database is locked'));
+            }
+        });
+        app(PlaywrightClient::class)->releaseStatuses([], $old);
+        $this->assertSame(1, $collisions);
+        $this->assertSame($new, $account->fresh()->session_state_encrypted);
+        Http::assertSentCount(1);
+    }
+
+    public function test_cookie_refresh_does_not_replace_a_session_changed_between_read_and_write(): void
+    {
+        $account = $this->account();
+        $old = $account->session_state_encrypted;
+        $newer = ['cookies' => [['name' => 'new-login', 'value' => 'secret']]];
+        Http::fake(['*' => Http::response(['success' => true, 'data' => ['matches' => [], 'session_state' => ['cookies' => [['name' => 'stale-refresh']]]]])]);
+        $armed = true;
+        DB::connection()->beforeExecuting(function ($query) use (&$armed, $account, $newer): void {
+            if ($armed && str_starts_with($query, 'update "automation_accounts"') && str_contains($query, 'session_state_encrypted')) {
+                $armed = false;
+                $account->update(['session_state_encrypted' => $newer]);
+            }
+        });
+        app(PlaywrightClient::class)->releaseStatuses([], $old);
+        $this->assertFalse($armed);
         $this->assertSame($newer, $account->fresh()->session_state_encrypted);
     }
 }

@@ -47,6 +47,7 @@ describe("findDraft", () => {
         const candidate = {
             isVisible: async () => true,
             innerText: async () => "Goodbye My Beautiful Past\nNorpanic\n1\n70%",
+            getAttribute: async () => null,
             locator: () => noLinks,
         };
         const page = {
@@ -86,6 +87,7 @@ describe("findDraft", () => {
         const makeCandidate = (text: string) => ({
             isVisible: async () => true,
             innerText: async () => text,
+            getAttribute: async () => null,
             locator: () => ({ count: async () => 0, allInnerTexts: async () => [] }),
         });
         const candidates = [

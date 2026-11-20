@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acquireSoundOnPage } from './shared-soundon.js';
+import { acquireSoundOnPage, closeIdleSoundOnContext } from './shared-soundon.js';
 
 describe('shared SoundOn context with Chromium', () => {
     it('keeps other pages alive when one upload page is closed', async () => {
@@ -13,6 +13,6 @@ describe('shared SoundOn context with Chromium', () => {
             expect(three.page.isClosed()).toBe(false);
             await two.page.setContent('<h1>second upload remains open</h1>');
             expect(await two.page.locator('h1').innerText()).toBe('second upload remains open');
-        } finally { await Promise.all([one.release(), two.release(), three.release()]); }
+        } finally { await Promise.all([one.release(), two.release(), three.release()]); await closeIdleSoundOnContext(); }
     }, 15000);
 });

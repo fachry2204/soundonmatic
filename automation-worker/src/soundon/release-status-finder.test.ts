@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chromium } from "playwright";
-import { detectReleaseStatus, findReleaseStatuses, parseRejectionReason } from "./release-status-finder.js";
+import { candidateFor, detectReleaseStatus, findReleaseStatuses, parseRejectionReason } from "./release-status-finder.js";
 
 describe("parseRejectionReason", () => {
     it("reads every rejection bullet from the SoundOn release warning", () => {
@@ -26,12 +26,78 @@ describe("detectReleaseStatus", () => {
 });
 
 describe("findReleaseStatuses", () => {
+    it('checks later pages when SoundOn returns fuzzy titles for a confirmed search', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.route('http://soundon.test/search*', route => route.fulfill({ contentType: 'application/json', body: '{}' }));
+            await page.route('http://soundon.test/', route => route.fulfill({ contentType: 'text/html', body: `<input placeholder="Find release by album name or artist name"><table><tbody></tbody></table><button aria-label="Next" disabled onclick="document.querySelector('tbody').innerHTML='<tr><td>My Girl<br>HarmoniX Band Medan</td><td>Under Review</td></tr>';this.disabled=true">Next</button>
+                <script>document.querySelector('input').oninput=async e=>{history.replaceState(null,'','/?searchKey='+encodeURIComponent(e.target.value));await fetch('/search');document.querySelector('tbody').innerHTML='<tr><td>Another Girl<br>Other Artist</td><td>Live</td></tr>';document.querySelector('button').disabled=false;}</script>` }));
+            await page.goto('http://soundon.test/');
+            const matches = await findReleaseStatuses(page, [{ key: '4416', title: 'My Girl', artist: 'HarmoniX Band Medan' }]);
+            expect(matches['4416']).toMatchObject({ found: true, status: 'under_review' });
+        } finally { await browser.close(); }
+    }, 15000);
+    it('does not accept a temporary No Result while the search response is pending', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.route('http://soundon.test/search*', async route => {
+                await new Promise(resolve => setTimeout(resolve, 3100));
+                await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ title: 'My Girl' }) });
+            });
+            await page.route('http://soundon.test/', route => route.fulfill({ contentType: 'text/html', body: `<input placeholder="Find release by album name or artist name"><table><tbody><tr><td>Other Song<br>Other Artist</td><td>Live</td></tr></tbody></table>
+                <script>document.querySelector('input').oninput=async()=>{document.querySelector('tbody').innerHTML='<tr><td class="semi-empty">No Result</td></tr>';await fetch('/search?q=MyGirl');document.querySelector('tbody').innerHTML='<tr><td>My Girl<br>HarmoniX Band Medan</td><td>Under Review</td></tr>';}</script>` }));
+            await page.goto('http://soundon.test/');
+            const matches = await findReleaseStatuses(page, [{ key: '4416', title: 'My Girl', artist: 'HarmoniX Band Medan' }]);
+            expect(matches['4416']).toMatchObject({ found: true, status: 'under_review' });
+        } finally { await browser.close(); }
+    }, 15000);
+    it('finds Delivered with a leading checkbox and full artist in a title attribute', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<table><thead><tr><th></th><th>Title</th><th>Tracks</th><th>Status</th></tr></thead><tbody>
+                <tr><td><input type="checkbox"></td><td><div class="so-album-preview-item-title-text">First Creek Road</div><span title="Randall Ray Coulter">Randall Ray Co...</span></td><td>1</td><td>Delivered</td></tr>
+                </tbody></table>`);
+            const matches = await findReleaseStatuses(page, [{ key: '4499', title: 'First Creek Road', artist: 'Randall Ray Coulter' }]);
+            expect(matches['4499']).toMatchObject({ found: true, status: 'delivery' });
+        } finally { await browser.close(); }
+    }, 10000);
+    it('uses the title header when checkbox rows have no SoundOn-specific classes', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<table><thead><tr><th></th><th>Title</th><th>Status</th></tr></thead><tbody><tr><td><input type="checkbox"></td><td>My Girl<br>HarmoniX Band Medan</td><td>Under Review</td></tr></tbody></table>');
+            const matches = await findReleaseStatuses(page, [{ key: '4416', title: 'My Girl', artist: 'HarmoniX Band Medan' }]);
+            expect(matches['4416']).toMatchObject({ found: true, status: 'under_review' });
+        } finally { await browser.close(); }
+    }, 10000);
+    it('does not match another artist just because a title is unique', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<table><tbody><tr><td>My Girl<br>Other Band</td><td>Under Review</td></tr></tbody></table>');
+            expect(await candidateFor(page, 'My Girl', 'HarmoniX Band Medan')).toBeNull();
+        } finally { await browser.close(); }
+    }, 10000);
+    it('preserves verified matches when another release has an unknown status', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<table><tbody><tr><td>First Creek Road<br>Randall Ray Coulter</td><td>Delivered</td></tr><tr><td>My Girl<br>HarmoniX Band Medan</td><td>Processing</td></tr></tbody></table>');
+            const matches = await findReleaseStatuses(page, [{ key: '4499', title: 'First Creek Road', artist: 'Randall Ray Coulter' }, { key: '4416', title: 'My Girl', artist: 'HarmoniX Band Medan' }]);
+            expect(matches['4499']).toMatchObject({ found: true, status: 'delivery' });
+            expect(matches['4416']).toMatchObject({ found: false, error: expect.stringContaining('SOUNDON_STATUS_UNCONFIRMED') });
+        } finally { await browser.close(); }
+    }, 10000);
     it('reports an unrecognized status instead of saying a matching release is absent', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
             const page = await browser.newPage();
             await page.setContent('<table><tbody><tr><td>Love Me Too Late<br>Nexvira</td><td>New Status</td></tr></tbody></table>');
-            await expect(findReleaseStatuses(page, [{ key: '4070', title: 'Love Me Too Late', artist: 'Nexvira' }])).rejects.toThrow('SOUNDON_STATUS_UNCONFIRMED');
+            const matches = await findReleaseStatuses(page, [{ key: '4070', title: 'Love Me Too Late', artist: 'Nexvira' }]);
+            expect(matches['4070']).toMatchObject({ found: false, error: expect.stringContaining('SOUNDON_STATUS_UNCONFIRMED') });
         } finally { await browser.close(); }
     }, 10000);
     it('falls back to artist and selects the exact title and artist among unrelated results', async () => {

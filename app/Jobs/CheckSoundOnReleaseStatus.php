@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Enums\Platform;
 use App\Enums\AutomationRunStatus;
+use App\Enums\Platform;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
+use App\Services\Automation\AttentionNotifier;
 use App\Services\Automation\PlaywrightClient;
 use App\Services\Automation\SessionManager;
-use App\Services\Automation\AttentionNotifier;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -54,12 +54,12 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
         ReleaseJob::query()->whereIn('id', $jobs->pluck('id'))
             ->where('soundon_check_status', '!=', 'detected')
             ->update([
-            'soundon_check_status' => 'checking',
-            'soundon_check_progress' => 20,
-            'soundon_check_error' => null,
-            'soundon_check_started_at' => now(),
-            'soundon_check_finished_at' => null,
-        ]);
+                'soundon_check_status' => 'checking',
+                'soundon_check_progress' => 20,
+                'soundon_check_error' => null,
+                'soundon_check_started_at' => now(),
+                'soundon_check_finished_at' => null,
+            ]);
 
         try {
             $soundOn = $sessions->ensure(Platform::SoundOn);
@@ -80,6 +80,14 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                     if ($isPreUploadCheck) {
                         $notifier->send('soundon_release_not_found', $message, $job->automation_run_id, $job->id, 'SOUNDON_RELEASE_NOT_FOUND');
                     }
+
+                    continue;
+                }
+                if (($match['found'] ?? true) === false) {
+                    $job->update(['soundon_check_status' => 'failed', 'soundon_check_progress' => 100,
+                        'soundon_check_error' => (string) ($match['error'] ?? 'Hasil pencarian SoundOn belum dapat dipastikan.'),
+                        'soundon_status_checked_at' => now(), 'soundon_check_finished_at' => now()]);
+
                     continue;
                 }
                 $rawStatus = trim((string) ($match['status'] ?? ''));
@@ -96,6 +104,7 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                     $job->update(['soundon_check_status' => 'failed', 'soundon_check_progress' => 100,
                         'soundon_check_error' => 'Status SoundOn tidak dikenali: '.($rawStatus !== '' ? $rawStatus : '(kosong)').'.', 'soundon_status_checked_at' => now(),
                         'soundon_check_finished_at' => now()]);
+
                     continue;
                 }
                 if ($isPreUploadCheck) {
@@ -115,6 +124,7 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                         'soundon_check_finished_at' => null,
                     ]);
                     self::dispatch($job->id, $this->statusRunId, 'uploading');
+
                     continue;
                 }
                 $upc = in_array($status, ['delivery', 'approved', 'live'], true) ? trim((string) ($match['upc'] ?? '')) : '';

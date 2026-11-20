@@ -21,7 +21,7 @@ import { moveSoundfreshReleaseToUnderReview } from "./soundfresh/review-release.
 import { ensureSoundfreshEnglish } from './soundfresh/language.js';
 import { scanProtectedReleases } from './soundfresh/protected-release-scan.js';
 import { readDraftInventory } from './soundon/draft-inventory.js';
-import { acquireSoundOnPage, soundOnSessionInUse } from './browser/shared-soundon.js';
+import { acquireSoundOnPage, closeIdleSoundOnContext, soundOnSessionInUse } from './browser/shared-soundon.js';
 import type { BrowserContext } from "playwright";
 const app = Fastify({
     logger: {
@@ -150,6 +150,9 @@ app.post("/v1/sessions/login", async (req, reply) => {
             .code(422)
             .send({ success: false, error: "INVALID_LOGIN_REQUEST" });
     if (body.platform === 'soundon' && soundOnSessionInUse()) {
+        return reply.code(409).send({ success: false, error: 'SOUNDON_SESSION_IN_USE:Wait for active uploads before logging in again.' });
+    }
+    if (body.platform === 'soundon' && !await closeIdleSoundOnContext()) {
         return reply.code(409).send({ success: false, error: 'SOUNDON_SESSION_IN_USE:Wait for active uploads before logging in again.' });
     }
     // Normal authentication is background-only. A genuine OTP/CAPTCHA is

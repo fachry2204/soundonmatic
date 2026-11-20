@@ -4,6 +4,16 @@ import { extractReleaseLyrics, extractTrackLyrics } from './extract.js';
 import { setTextField } from '../soundon/draft-driver.js';
 
 describe('lyrics transfer', () => {
+    it('does not collapse track panels that are already expanded', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<button aria-expanded="true" onclick="document.querySelector('#track-panel').hidden=true">Track Information</button>
+                <div id="track-panel"><div class="accordion-item"><h2 class="accordion-header"><button aria-expanded="true" onclick="document.querySelector('#body').hidden=true">Track 1</button></h2>
+                <div id="body"><table><tr><td>Title</td><td>Sore Beranjak Malam</td></tr></table><button aria-controls="lyrics-6064" onclick="document.querySelector('#lyrics-6064').hidden=false">Show/Hide Lyrics</button><div id="lyrics-6064" hidden>First line<br>Second line</div></div></div></div>`);
+            expect(await extractReleaseLyrics(page)).toEqual([{ title: 'Sore Beranjak Malam', lyrics: 'First line\nSecond line' }]);
+        } finally { await browser.close(); }
+    }, 10000);
     it('copies inline lyrics beneath Show/Hide Lyrics without mixing tracks', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

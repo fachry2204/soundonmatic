@@ -149,6 +149,14 @@ describe("contributorDetails", () => {
             contributors: "Majestic Malay (Tenor Saxophone)",
         })).toEqual([{ name: "Majestic Malay", role: "Tenor Saxophone" }]);
     });
+    it('preserves Bass Guitar and does not submit the same Vocalist twice', () => {
+        expect(contributorCreditsForTrack({ primary_artist: 'Lutvinauval', contributors: 'Lutvinauval (Bass Guitar)\nLutvinauval (Vocalist)' }))
+            .toEqual([{ name: 'Lutvinauval', role: 'Bass Guitar' }, { name: 'Lutvinauval', role: 'Vocalist' }]);
+    });
+    it('adds a missing Vocalist without overwriting an instrumental role on a vocal track', () => {
+        expect(contributorCreditsForTrack({ primary_artist: 'Lutvinauval', contributors: 'Lutvinauval (Bass Guitar)' }))
+            .toEqual([{ name: 'Lutvinauval', role: 'Bass Guitar' }, { name: 'Lutvinauval', role: 'Vocalist' }]);
+    });
 });
 
 describe("matchesFieldLabel", () => {

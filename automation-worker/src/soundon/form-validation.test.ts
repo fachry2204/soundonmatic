@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chromium } from "playwright";
-import { assertNoValidationErrors, advanceWizardStep, setScopedTime, setSearchField, setTextField, selectAlbumTrack, waitForUpload, waitForEntityCard, skipBlockedEntity, assertNoSkippedFields, selectCreateArtistProfile } from "./draft-driver.js";
+import { assertNoValidationErrors, advanceWizardStep, setScopedTime, setSearchField, setTextField, selectAlbumTrack, waitForUpload, waitForEntityCard, skipBlockedEntity, assertNoSkippedFields, selectCreateArtistProfile, retryMissingContributorName } from "./draft-driver.js";
 
 describe("SoundOn validation", () => {
     it("closes a blocked editor, allows the next field, but does not report complete metadata", async () => {
@@ -181,6 +181,39 @@ describe("SoundOn validation", () => {
             expect(await waitForEntityCard(page, 'Production and additional contributors', 'Sadadi Nusantara', 50)).toBe(true);
         } finally { await browser.close(); }
     }, 20000);
+    it("reselects the exact contributor after SoundOn reports a missing artist name", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div id="editor"><div class="semi-select-content-wrapper">Vocalist</div>
+                <div class="semi-select-content-wrapper" onclick="document.querySelector('#portal').hidden=false">Artist name</div>
+                <div role="alert">Please provide Artist name</div></div>
+                <div id="portal" class="semi-portal" hidden><input type="text"><div role="option" onclick="window.selected=this.textContent">Lutvinauval</div></div>`);
+            expect(await retryMissingContributorName(page, page.locator('#editor'), 'Lutvinauval')).toBe(true);
+            expect(await page.evaluate(() => (window as any).selected)).toBe('Lutvinauval');
+        } finally { await browser.close(); }
+    }, 15000);
+    it('waits for a delayed editor without an h4 and commits artist selection through pointer events', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><span class="soundon-formik-field-label">Primary artists</span><div id="saved"></div>
+                <button onclick="setTimeout(()=>document.querySelector('#editor').hidden=false,900)">Add</button></section>
+                <div id="editor" role="dialog" hidden><input type="text">
+                <div class="so-artist-preview-item-artist-name" onmousedown="window.artistSelected=true">Lutvinauval</div>
+                <button onclick="if(window.artistSelected){document.querySelector('#saved').textContent='Lutvinauval';document.querySelector('#editor').hidden=true}">Submit</button></div>`);
+            await setSearchField(page, 'Primary artists', 'Lutvinauval');
+            expect(await page.locator('#saved').innerText()).toBe('Lutvinauval');
+        } finally { await browser.close(); }
+    }, 15000);
+    it("does not reselect a contributor for an unrelated validation error", async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<div id="editor"><div role="alert">Invalid role</div></div>');
+            expect(await retryMissingContributorName(page, page.locator('#editor'), 'Lutvinauval')).toBe(false);
+        } finally { await browser.close(); }
+    }, 10000);
     it("returns SoundOn audio processing error verbatim", async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

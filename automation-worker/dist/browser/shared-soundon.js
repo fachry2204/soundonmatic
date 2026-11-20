@@ -6,6 +6,29 @@ const idleWaiters = new Set();
 let leases = 0;
 let lock = Promise.resolve();
 export const soundOnSessionInUse = () => leases > 0;
+/** Explicit login/shutdown may discard an idle profile, never an active one. */
+export async function closeIdleSoundOnContext() {
+    const previous = lock;
+    let unlock;
+    lock = new Promise(resolve => { unlock = resolve; });
+    await previous;
+    try {
+        if (leases > 0)
+            return false;
+        const browser = shared;
+        shared = undefined;
+        identities.clear();
+        if (browser)
+            await closeContext(browser);
+        for (const wake of idleWaiters)
+            wake();
+        idleWaiters.clear();
+        return true;
+    }
+    finally {
+        unlock();
+    }
+}
 function fingerprint(state) {
     if (!state || typeof state === 'string')
         throw new Error('SOUNDON_SHARED_SESSION_REQUIRED');
@@ -37,21 +60,29 @@ export async function acquireSoundOnPage(state) {
                 const liveToken = fingerprint(await shared.storageState({ indexedDB: true }));
                 identities.add(liveToken);
                 if (!identities.has(token)) {
-                    let wake;
-                    const idle = new Promise(resolve => { wake = resolve; idleWaiters.add(resolve); });
-                    unlock();
-                    let timer;
-                    try {
-                        await Promise.race([idle, new Promise((_, reject) => {
-                                timer = setTimeout(() => reject(new Error('SOUNDON_SHARED_SESSION_WAIT_TIMEOUT:Menunggu sesi SoundOn aktif selesai terlalu lama.')), 1_200_000);
-                            })]);
+                    if (leases === 0) {
+                        const old = shared;
+                        shared = undefined;
+                        identities.clear();
+                        await closeContext(old);
                     }
-                    finally {
-                        idleWaiters.delete(wake);
-                        if (timer)
-                            clearTimeout(timer);
+                    else {
+                        let wake;
+                        const idle = new Promise(resolve => { wake = resolve; idleWaiters.add(resolve); });
+                        unlock();
+                        let timer;
+                        try {
+                            await Promise.race([idle, new Promise((_, reject) => {
+                                    timer = setTimeout(() => reject(new Error('SOUNDON_SHARED_SESSION_WAIT_TIMEOUT:Menunggu sesi SoundOn aktif selesai terlalu lama.')), 1_200_000);
+                                })]);
+                        }
+                        finally {
+                            idleWaiters.delete(wake);
+                            if (timer)
+                                clearTimeout(timer);
+                        }
+                        continue;
                     }
-                    continue;
                 }
             }
             if (!shared) {
@@ -89,9 +120,11 @@ export async function acquireSoundOnPage(state) {
                     try {
                         leases--;
                         if (leases === 0 && shared === browser) {
-                            shared = undefined;
-                            identities.clear();
-                            await closeContext(browser);
+                            // The next extraction/check/upload must keep the same
+                            // authenticated browser profile, even between requests.
+                            // Only release this job's tab; a new login or account
+                            // switch explicitly closes the idle context.
+                            identities.add(fingerprint(await browser.storageState({ indexedDB: true })));
                             for (const wake of idleWaiters)
                                 wake();
                             idleWaiters.clear();

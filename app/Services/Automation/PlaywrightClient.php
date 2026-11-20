@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Automation;
 
+use App\Models\AutomationAccount;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 final class PlaywrightClient
@@ -214,18 +217,41 @@ final class PlaywrightClient
 
         $data = (array) $response->json('data', []);
         // Persist cookies refreshed by successful platform operations. A
-        // concurrent request based on an older snapshot must never overwrite a
-        // newer login or another refresh; compare under a database row lock.
+        // concurrent request must not overwrite a newer login/refresh. Use an
+        // atomic compare-and-swap: SQLite has no row lock and upgrading a read
+        // transaction to a write can fail immediately despite busy_timeout.
         $platform = str_starts_with($path, '/v1/soundfresh/') ? 'soundfresh'
             : (str_starts_with($path, '/v1/soundon/') ? 'soundon' : null);
         if ($platform && is_array($payload['session_state'] ?? null)
             && is_array($data['session_state'] ?? null)) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($payload, $data, $platform): void {
-                $account = \App\Models\AutomationAccount::query()->where('platform', $platform)->lockForUpdate()->first();
-                if ($account && $account->status === 'active' && $account->session_state_encrypted == $payload['session_state']) {
-                    $account->update(['session_state_encrypted' => $data['session_state'], 'last_authenticated_at' => now()]);
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                try {
+                    $account = AutomationAccount::query()->where('platform', $platform)->first();
+                    if (! $account || $account->status !== 'active'
+                        || $account->session_state_encrypted != $payload['session_state']) {
+                        break;
+                    }
+                    $previous = $account->getRawOriginal('session_state_encrypted');
+                    $account->session_state_encrypted = $data['session_state'];
+                    AutomationAccount::query()->whereKey($account->getKey())
+                        ->where('status', 'active')->where('session_state_encrypted', $previous)
+                        ->update(['session_state_encrypted' => $account->getAttributes()['session_state_encrypted'],
+                            'last_authenticated_at' => now()]);
+                    break;
+                } catch (QueryException $error) {
+                    if (! preg_match('/database (?:is )?(?:locked|busy)|SQLITE_BUSY|SQLITE_LOCKED/i', $error->getPrevious()?->getMessage() ?? '')) {
+                        throw $error;
+                    }
+                    if ($attempt === 4) {
+                        // The remote operation already succeeded. Do not mark
+                        // it failed/re-upload because an optional cookie write
+                        // was busy. Never log SQL containing session secrets.
+                        Log::warning('Platform operation succeeded; session refresh deferred because the database is busy.', ['platform' => $platform]);
+                        break;
+                    }
+                    usleep(100000 * ($attempt + 1));
                 }
-            });
+            }
             unset($data['session_state']);
         }
 

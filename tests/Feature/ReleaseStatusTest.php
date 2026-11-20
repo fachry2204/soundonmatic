@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Livewire\Automation\ReleaseStatus;
+use App\Enums\AutomationRunStatus;
 use App\Jobs\CheckSoundOnReleaseStatus;
 use App\Jobs\QueueSoundOnStatusChecks;
-use App\Jobs\VerifySoundfreshReleaseIdentifiers;
 use App\Jobs\RejectSoundfreshRelease;
+use App\Jobs\VerifySoundfreshReleaseIdentifiers;
+use App\Livewire\Automation\ReleaseStatus;
 use App\Models\AutomationAccount;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
 use App\Models\User;
-use App\Enums\AutomationRunStatus;
+use App\Services\Automation\LocalSystemManager;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AccessControlSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,6 +27,28 @@ use Tests\TestCase;
 final class ReleaseStatusTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_uncertain_worker_result_is_not_absence_and_does_not_erase_other_matches(): void
+    {
+        AutomationAccount::query()->create(['platform' => 'soundon', 'name' => 'SoundOn', 'status' => 'active',
+            'session_state_encrypted' => ['cookies' => []], 'last_authenticated_at' => now()]);
+        $run = AutomationRun::query()->create(['status' => 'completed']);
+        $jobs = collect(['First Creek Road', 'My Girl'])->map(fn ($title, $index) => ReleaseJob::query()->create([
+            'automation_run_id' => $run->id, 'soundfresh_release_id' => 'MIXED-'.$index,
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/mixed-'.$index,
+            'idempotency_key' => 'mixed-status-'.$index, 'release_title' => $title,
+            'status' => 'completed', 'checkpoint' => 'draft_saved', 'soundon_check_status' => 'queued',
+        ]));
+        Http::fake(['*' => Http::response(['success' => true, 'data' => ['matches' => [
+            $jobs[0]->id => ['found' => true, 'status' => 'delivery', 'upc' => null, 'isrcs' => []],
+            $jobs[1]->id => ['found' => false, 'error' => 'SOUNDON_ARTIST_UNCONFIRMED:Nama artis lengkap belum terbaca'],
+        ]]])]);
+        app()->call([new CheckSoundOnReleaseStatus($jobs->pluck('id')->all()), 'handle']);
+        $this->assertSame('detected', $jobs[0]->fresh()->soundon_check_status);
+        $this->assertSame('delivery', $jobs[0]->fresh()->soundon_release_status);
+        $this->assertSame('failed', $jobs[1]->fresh()->soundon_check_status);
+        $this->assertStringContainsString('SOUNDON_ARTIST_UNCONFIRMED', $jobs[1]->fresh()->soundon_check_error);
+    }
 
     public function test_status_refresh_reports_worker_start_failure_before_clearing_previous_results(): void
     {
@@ -40,8 +63,12 @@ final class ReleaseStatusTest extends TestCase
             ]);
         }
         $oldRun = AutomationRun::query()->create(['status' => 'completed', 'summary_json' => ['purpose' => 'soundon_status_check']]);
-        app()->instance(\App\Services\Automation\LocalSystemManager::class, new class {
-            public function start(): array { throw new \RuntimeException('Checker could not start'); }
+        app()->instance(LocalSystemManager::class, new class
+        {
+            public function start(): array
+            {
+                throw new \RuntimeException('Checker could not start');
+            }
         });
         Livewire::actingAs($viewer)->test(ReleaseStatus::class)->call('refreshSoundOnStatuses')
             ->assertSet('bulkCheckRequested', false)
@@ -319,7 +346,7 @@ final class ReleaseStatusTest extends TestCase
             'soundon_check_status' => 'queued',
         ]);
         Http::fake(['*' => Http::response(['success' => true, 'data' => ['matches' => [
-            $job->id => ['found' => true, 'status' => "  Not   Approved  ", 'release_url' => 'https://soundon.example/rejected'],
+            $job->id => ['found' => true, 'status' => '  Not   Approved  ', 'release_url' => 'https://soundon.example/rejected'],
         ]]])]);
 
         app()->call([new CheckSoundOnReleaseStatus($job->id), 'handle']);
@@ -1005,6 +1032,7 @@ final class ReleaseStatusTest extends TestCase
             sort($ids);
             $expected = [$checked->id, $new->id];
             sort($expected);
+
             return $ids === $expected;
         });
     }

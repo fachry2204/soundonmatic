@@ -16,6 +16,18 @@ final class ApplicationUpdateTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_release_version_matches_installer_desktop_and_install_template(): void
+    {
+        $version = config('automation.bundled_app_version');
+
+        foreach (['scripts/desktop/SoundOnMatic.Desktop.csproj', 'scripts/installer/SoundOnMatic.Installer.csproj'] as $project) {
+            $this->assertStringContainsString('<Version>'.$version.'</Version>', file_get_contents(base_path($project)));
+        }
+
+        $this->assertStringContainsString('SOUNDMATIC_APP_VERSION='.$version, file_get_contents(base_path('.env.install')));
+        $this->assertStringContainsString('SoundMatic-Setup-v'.$version.'.exe', file_get_contents(base_path('scripts/build-installer.ps1')));
+    }
+
     public function test_admin_can_see_latest_github_update_and_run_installer_download(): void
     {
         $this->seed(AccessControlSeeder::class);
@@ -58,7 +70,7 @@ final class ApplicationUpdateTest extends TestCase
         $admin = User::factory()->create();
         $admin->assignRole('Admin');
         $this->actingAs($admin);
-        config(['automation.app_version' => '1.1.57']);
+        config(['automation.app_version' => '1.1.57', 'automation.bundled_app_version' => '1.1.85']);
 
         Livewire::test(ApplicationUpdate::class)
             ->assertSet('currentVersion', '1.1.85')

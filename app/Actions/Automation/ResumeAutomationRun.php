@@ -9,8 +9,9 @@ use App\Enums\ReleaseJobStatus;
 use App\Jobs\ProcessReleaseJob;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
-use Illuminate\Support\Facades\DB;
+use App\Services\Automation\ReleaseDatePriority;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 
 final class ResumeAutomationRun
 {
@@ -43,7 +44,8 @@ final class ResumeAutomationRun
                 $jobsQuery->whereIn('id', $selectedJobIds);
             }
 
-            $jobs = $jobsQuery->get()->sortBy(fn (ReleaseJob $job): string => ((string) data_get($job->metadata_snapshot_json, 'uploaded_at', null) ?: '9999') . sprintf(':%010d', (int) data_get($job->metadata_snapshot_json, 'pending_order', 9999999999)))->values();
+            $jobs = $jobsQuery->get()->sortBy(fn (ReleaseJob $job): string => ReleaseDatePriority::key(data_get($job->metadata_snapshot_json, 'release_date'))
+                .sprintf(':%010d', (int) data_get($job->metadata_snapshot_json, 'pending_order', 9999999999)))->values();
 
             $run->releaseJobs()
                 ->whereIn('id', $jobs->pluck('id'))
@@ -56,6 +58,14 @@ final class ResumeAutomationRun
             return $jobs->pluck('id')->all();
         });
 
-        if ($jobIds !== []) Bus::chain(collect($jobIds)->map(fn ($id) => new ProcessReleaseJob((string) $id))->all())->dispatch();
+        $lanes = [[], [], []];
+        foreach ($jobIds as $index => $id) {
+            $lanes[$index % 3][] = new ProcessReleaseJob((string) $id);
+        }
+        foreach ($lanes as $lane) {
+            if ($lane !== []) {
+                Bus::chain($lane)->dispatch();
+            }
+        }
     }
 }

@@ -10,6 +10,24 @@ let leases = 0;
 let lock: Promise<void> = Promise.resolve();
 export const soundOnSessionInUse = (): boolean => leases > 0;
 
+/** Explicit login/shutdown may discard an idle profile, never an active one. */
+export async function closeIdleSoundOnContext(): Promise<boolean> {
+    const previous = lock;
+    let unlock!: () => void;
+    lock = new Promise(resolve => { unlock = resolve; });
+    await previous;
+    try {
+        if (leases > 0) return false;
+        const browser = shared;
+        shared = undefined;
+        identities.clear();
+        if (browser) await closeContext(browser);
+        for (const wake of idleWaiters) wake();
+        idleWaiters.clear();
+        return true;
+    } finally { unlock(); }
+}
+
 function fingerprint(state: State): string {
     if (!state || typeof state === 'string') throw new Error('SOUNDON_SHARED_SESSION_REQUIRED');
     // Ignore analytics and page-preference cookies that can change between
@@ -40,6 +58,12 @@ export async function acquireSoundOnPage(state: State): Promise<{ context: Brows
             const liveToken = fingerprint(await shared.storageState({ indexedDB: true }));
             identities.add(liveToken);
             if (!identities.has(token)) {
+                if (leases === 0) {
+                    const old = shared;
+                    shared = undefined;
+                    identities.clear();
+                    await closeContext(old);
+                } else {
                 let wake!: () => void;
                 const idle = new Promise<void>(resolve => { wake = resolve; idleWaiters.add(resolve); });
                 unlock();
@@ -50,6 +74,7 @@ export async function acquireSoundOnPage(state: State): Promise<{ context: Brows
                     })]);
                 } finally { idleWaiters.delete(wake); if (timer) clearTimeout(timer); }
                 continue;
+                }
             }
         }
         if (!shared) { shared = await sessionContext(state); identities.clear(); identities.add(token); }
@@ -73,8 +98,11 @@ export async function acquireSoundOnPage(state: State): Promise<{ context: Brows
             try {
                 leases--;
                 if (leases === 0 && shared === browser) {
-                    shared = undefined; identities.clear();
-                    await closeContext(browser);
+                    // The next extraction/check/upload must keep the same
+                    // authenticated browser profile, even between requests.
+                    // Only release this job's tab; a new login or account
+                    // switch explicitly closes the idle context.
+                    identities.add(fingerprint(await browser.storageState({ indexedDB: true })));
                     for (const wake of idleWaiters) wake();
                     idleWaiters.clear();
                 }

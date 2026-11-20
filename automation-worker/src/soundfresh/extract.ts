@@ -61,7 +61,10 @@ export async function extractTrackLyrics(track: Locator): Promise<string | null>
         return await field.count() ? (await field.inputValue()).replace(/\r\n?/g, '\n').trim() || null : null;
     }
     const wasExpanded = await toggle.getAttribute('aria-expanded') === 'true';
-    if (!wasExpanded) await toggle.click();
+    if (!wasExpanded) {
+        try { await toggle.click({ timeout: 8_000 }); }
+        catch { throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_toggle_not_visible'); }
+    }
     await track.page().waitForTimeout(500);
     const result = await toggle.evaluate((button) => {
         const root = button.closest('.accordion-item');
@@ -112,13 +115,7 @@ export async function extractTrackLyrics(track: Locator): Promise<string | null>
 
 /** Read lyrics from the visible Soundfresh track panels without downloading audio. */
 export async function extractReleaseLyrics(page: Page): Promise<Array<{ title: string; lyrics: string | null }>> {
-    const info = page.getByRole('button', { name: 'Track Information', exact: true });
-    if (await info.count() === 1 && await info.getAttribute('aria-expanded') !== 'true') await info.click();
-    const accordions = page.locator('h2.accordion-header button');
-    for (let index = 0; index < Math.min(await accordions.count(), 100); index++) {
-        const button = accordions.nth(index);
-        if (await button.getAttribute('aria-expanded') !== 'true') await button.click();
-    }
+    await openTrackPanels(page);
     const tracks = page.locator('.accordion-item');
     const result: Array<{ title: string; lyrics: string | null }> = [];
     for (let index = 0; index < await tracks.count(); index++) {
@@ -174,24 +171,29 @@ async function extractFromRegistry(
     return result;
 }
 
-async function extractSoundfreshDetail(
-    page: Page,
-): Promise<Record<string, unknown>> {
+async function openTrackPanels(page: Page): Promise<void> {
     const trackInformation = page.getByRole("button", {
         name: "Track Information",
         exact: true,
     });
-    if ((await trackInformation.count()) === 1) {
-        await trackInformation.click();
+    if ((await trackInformation.count()) === 1 && await trackInformation.getAttribute('aria-expanded') !== 'true') {
+        await trackInformation.click({ timeout: 8_000 });
         await page.waitForTimeout(300);
     }
 
     const accordions = page.locator("h2.accordion-header button");
     const accordionCount = Math.min(await accordions.count(), 100);
     for (let index = 0; index < accordionCount; index++) {
-        await accordions.nth(index).click();
+        const button = accordions.nth(index);
+        if (await button.getAttribute('aria-expanded') !== 'true') await button.click({ timeout: 8_000 });
     }
     if (accordionCount > 0) await page.waitForTimeout(300);
+}
+
+async function extractSoundfreshDetail(
+    page: Page,
+): Promise<Record<string, unknown>> {
+    await openTrackPanels(page);
 
     const trackItems = page.locator('.accordion-item');
     const lyricsByTrack: (string | null)[] = [];

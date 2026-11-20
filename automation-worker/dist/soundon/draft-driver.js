@@ -804,13 +804,18 @@ export function contributorCreditsForTrack(track, metadata = {}) {
         return contributors;
     // A vocal track still needs a Vocalist credit for every primary artist.
     for (const primaryArtist of primaryArtistEntries(track.primary_artist ?? metadata.primary_artist ?? "", artistEvidence(track))) {
-        const existing = contributors.find((entry) => entry.name.localeCompare(primaryArtist, undefined, { sensitivity: "accent" }) === 0);
-        if (existing)
-            existing.role = "Vocalist";
-        else
+        const existingVocalist = contributors.some((entry) => sameEntityName(entry.name, primaryArtist) && sameEntityName(entry.role, "Vocalist"));
+        if (!existingVocalist)
             contributors.push({ name: primaryArtist, role: "Vocalist" });
     }
-    return contributors;
+    const seen = new Set();
+    return contributors.filter(entry => {
+        const key = `${entry.name.normalize('NFC').trim().toLocaleLowerCase()}\0${entry.role.trim().toLocaleLowerCase()}`;
+        if (seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
 }
 async function setContributorWithFallback(page, label, name, role, primaryArtist, fallbackRole) {
     // Missing choices are recorded by setSearchField. Never replace a source
@@ -1803,16 +1808,21 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                     }
                 }
                 await add.click({ force: true });
-                await page.waitForTimeout(300);
                 // The add-artist modal heading has changed between SoundOn
                 // builds ("Add ...", "Primary artists", or a generic title).
                 // Prefer the old heading, then fall back to the visible modal
                 // container so EP/Album uploads are not rejected solely due to
                 // a copy/markup change in the dialog title.
                 let heading = page.locator("h4:visible").filter({ hasText: /^Add / }).last();
-                let modalFallback = page.locator("dialog.so-form-modal-dialog:visible, .so-form-modal-dialog:visible").last();
+                const modalFallback = page.locator('dialog:visible,.so-form-modal-dialog:visible,[role="dialog"]:visible,.semi-modal-content:visible')
+                    .filter({ has: page.locator('input:visible,[role="combobox"]:visible,.semi-select-content-wrapper:visible') }).last();
+                // Rendering the editor can take longer than 300ms. Wait for
+                // an actual editor, including layouts without an h4 heading.
+                await heading.or(modalFallback).last().waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined);
                 if (!(await heading.count()) && await modalFallback.count()) {
                     heading = modalFallback.locator("h4:visible, .so-form-modal-title:visible, [role='heading']:visible").first();
+                    if (!await heading.count())
+                        heading = modalFallback;
                 }
                 if (!(await heading.count()))
                     throw new Error(`SOUNDON_UI_CHANGED:add_dialog:${label}`);
@@ -1862,10 +1872,7 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                                 await page.keyboard.press("Escape").catch(() => undefined);
                             return;
                         }
-                        await roleOption.first().evaluate((element) => {
-                            const option = element.closest('.semi-select-option,[role="option"]') ?? element;
-                            option.click();
-                        });
+                        await resilientClick(roleOption.first());
                         await page.waitForTimeout(300);
                         await selectControl.nth(1).evaluate((element) => {
                             const select = element.closest(".semi-select");
@@ -1929,9 +1936,10 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                                 // Match canonical Unicode text rather than raw
                                 // code points (e.g. precomposed vs combining
                                 // accents), then click the exact live result.
-                                await currentArtistNames.nth(matchingArtistIndex).evaluate((element) => {
-                                    element.click();
-                                });
+                                // Semi controls may commit on pointer/mousedown.
+                                // HTMLElement.click() skips those events and can
+                                // leave the required Artist name value empty.
+                                await resilientClick(currentArtistNames.nth(matchingArtistIndex));
                                 entitySelected = true;
                                 break;
                             }
@@ -2084,7 +2092,11 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:submit_disabled:${dialogMessage}`);
                         }
                         await resilientClick(submitButton);
-                        const savedAfterSubmit = await waitForEntitySave(page, dialog, label, value, entitySaveTimeout);
+                        let savedAfterSubmit = await waitForEntitySave(page, dialog, label, value, entitySaveTimeout);
+                        if (!savedAfterSubmit && contributorRole && await retryMissingContributorName(page, dialog, value)) {
+                            await resilientClick(submitButton);
+                            savedAfterSubmit = await waitForEntitySave(page, dialog, label, value, entitySaveTimeout);
+                        }
                         if (!savedAfterSubmit) {
                             // Capture the actual failing form before Cancel
                             // hides its inputs and text; hidden-dialog counts
@@ -2200,6 +2212,51 @@ async function pasteInputValue(input, value) {
         }));
         field.dispatchEvent(new Event("change", { bubbles: true }));
     }, value);
+}
+// A search result can be displayed without being committed to the contributor
+// form. Only recover this explicit validation error, and only select an exact
+// result; the caller must still verify the saved card after submitting.
+export async function retryMissingContributorName(page, dialog, value) {
+    const errors = dialog.locator('[role="alert"]:visible,.semi-form-field-error-message:visible,.soundon-formik-field-error:visible');
+    const messages = await errors.allTextContents();
+    if (!messages.some(message => /please provide artist name/i.test(message)))
+        return false;
+    let controls = dialog.locator('.semi-select-content-wrapper:visible');
+    if (!await controls.count())
+        controls = dialog.locator('[role="combobox"]:visible');
+    if (await controls.count() < 2)
+        return false;
+    const nameControl = controls.nth(1);
+    await nameControl.click();
+    const search = page.locator('.semi-select-open:visible input[type="text"]:visible,.semi-select-focus:visible input[type="text"]:visible,.semi-portal input[type="text"]:visible').last();
+    await search.waitFor({ state: 'visible', timeout: 8000 }).catch(() => undefined);
+    if (!await search.isVisible().catch(() => false))
+        return false;
+    await pasteInputValue(search, value);
+    let portal = search.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " semi-portal ")][1]');
+    // Semi can keep the search input in the dialog and render its options in
+    // a linked listbox. Resolve that link rather than selecting a stale portal.
+    if (!await portal.count()) {
+        const listboxId = await search.getAttribute('aria-controls') ?? await nameControl.getAttribute('aria-controls');
+        if (listboxId)
+            portal = page.locator(`[id=${JSON.stringify(listboxId)}]`);
+    }
+    if (!await portal.count())
+        return false;
+    const deadline = Date.now() + entityResultTimeout;
+    while (Date.now() < deadline) {
+        const options = portal.locator(':is(.so-artist-preview-item-artist-name,.semi-select-option,[role="option"]):visible');
+        const index = await options.evaluateAll((elements, expected) => {
+            const normalize = (text) => text.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+            return elements.findIndex(element => normalize(element.textContent ?? '') === normalize(String(expected)));
+        }, value);
+        if (index >= 0) {
+            await options.nth(index).click();
+            return true;
+        }
+        await page.waitForTimeout(100);
+    }
+    return false;
 }
 function sameEntityName(actual, expected) {
     const normalize = (value) => value

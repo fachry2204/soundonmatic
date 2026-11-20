@@ -17,7 +17,7 @@ async function collect(page: Page) {
 }
 
 async function fixture(page: Page, options: { total?: number; api?: boolean; stuck?: boolean; sameText?: boolean } = {}) {
-    await page.route('https://fixture.test/**', route => route.fulfill({ contentType: 'text/html', body: '<div class="dataTables_wrapper"><table id="pending"><thead><tr><th>Album</th><th>Tracks</th><th>Status</th></tr></thead><tbody></tbody></table><button id="pending_next">Next</button></div>' }));
+    await page.route('https://fixture.test/**', route => route.fulfill({ contentType: 'text/html', body: '<div class="dataTables_wrapper"><table id="pending"><thead><tr><th>Album</th><th>Tracks</th><th>Status</th><th>Release Date</th></tr></thead><tbody></tbody></table><button id="pending_next">Next</button></div>' }));
     await page.goto('https://fixture.test/releases');
     await page.evaluate(({ total = 337, api = true, stuck = false, sameText = false }) => {
         let current = 0;
@@ -25,7 +25,7 @@ async function fixture(page: Page, options: { total?: number; api?: boolean; stu
         const draw = () => {
             document.querySelector('tbody')!.innerHTML = Array.from({ length: Math.min(100, total - current * 100) }, (_, i) => {
                 const id = current * 100 + i + 1;
-                return `<tr data-id="${id}"><td><a href="/admin/releases/${id}">${sameText ? 'Same title' : `Release ${id}`}</a><div>Artist</div><span hidden>hidden metadata</span></td><td>1</td><td>Pending <a href="/admin/releases/${id}">View</a></td></tr>`;
+                return `<tr data-id="${id}"><td><a href="/admin/releases/${id}">${sameText ? 'Same title' : `Release ${id}`}</a><div>Artist</div><span hidden>hidden metadata</span></td><td>1</td><td>Pending <a href="/admin/releases/${id}">View</a></td><td>2026-12-03</td></tr>`;
             }).join('');
             (document.querySelector('button') as HTMLButtonElement).disabled = current >= pages - 1;
             document.querySelector('button')!.className = current >= pages - 1 ? 'disabled' : '';
