@@ -8,6 +8,13 @@ use Tests\TestCase;
 
 class AutomationErrorClassifierTest extends TestCase
 {
+    public function test_calendar_viewport_error_is_identified_as_ui_interaction_failure(): void
+    {
+        $result = (new AutomationErrorClassifier)->classify(new \RuntimeException(
+            'PRE_RELEASE_INVALID:TikTok:2026-11-27:locator.click: Element is outside of the viewport',
+        ));
+        $this->assertSame(['code' => 'UI_INTERACTION_TIMEOUT', 'disposition' => 'retry'], $result);
+    }
     public function test_uncertain_or_concurrent_draft_creation_is_blocked_for_operator_review(): void
     {
         foreach (['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'] as $code) {

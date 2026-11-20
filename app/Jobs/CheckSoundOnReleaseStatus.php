@@ -9,6 +9,7 @@ use App\Enums\Platform;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
 use App\Services\Automation\AttentionNotifier;
+use App\Services\Automation\AutomationErrorClassifier;
 use App\Services\Automation\PlaywrightClient;
 use App\Services\Automation\SessionManager;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -84,8 +85,13 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                     continue;
                 }
                 if (($match['found'] ?? true) === false) {
+                    $error = (string) ($match['error'] ?? 'Hasil pencarian SoundOn belum dapat dipastikan.');
+                    if ($this->job && count($jobs) === 1
+                        && app(AutomationErrorClassifier::class)->classify(new \RuntimeException($error))['disposition'] === 'retry') {
+                        throw new \RuntimeException($error);
+                    }
                     $job->update(['soundon_check_status' => 'failed', 'soundon_check_progress' => 100,
-                        'soundon_check_error' => (string) ($match['error'] ?? 'Hasil pencarian SoundOn belum dapat dipastikan.'),
+                        'soundon_check_error' => $error,
                         'soundon_status_checked_at' => now(), 'soundon_check_finished_at' => now()]);
 
                     continue;
@@ -145,7 +151,22 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                 }
             }
         } catch (Throwable $exception) {
-            ReleaseJob::query()->whereIn('id', $jobs->pluck('id'))->update([
+            $unfinished = ReleaseJob::query()->whereIn('id', $jobs->pluck('id'))
+                ->whereIn('soundon_check_status', ['queued', 'checking']);
+            $classification = app(AutomationErrorClassifier::class)->classify($exception);
+            if ($this->job && $this->attempts() < $this->tries && $classification['disposition'] === 'retry'
+                && $classification['code'] !== 'AUTH_SESSION_EXPIRED') {
+                $unfinished->update([
+                    'soundon_check_status' => 'queued',
+                    'soundon_check_progress' => 5,
+                    'soundon_check_error' => 'Gangguan sementara; pemeriksaan akan diulang otomatis. '.$exception->getMessage(),
+                    'soundon_check_finished_at' => null,
+                ]);
+                $this->release($this->attempts() === 1 ? 15 : 45);
+
+                return;
+            }
+            $unfinished->update([
                 'soundon_check_status' => 'failed',
                 'soundon_check_progress' => 100,
                 'soundon_check_error' => $exception->getMessage(),

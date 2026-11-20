@@ -28,6 +28,31 @@ final class ReleaseStatusTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_temporary_status_failure_retries_automatically_and_stops_after_three_attempts(): void
+    {
+        AutomationAccount::query()->create(['platform' => 'soundon', 'name' => 'SoundOn', 'status' => 'active',
+            'session_state_encrypted' => ['cookies' => []], 'last_authenticated_at' => now()]);
+        Http::fake(['*' => Http::response(['success' => false, 'error' => 'NETWORK_TIMEOUT'], 500)]);
+        foreach ([1, 3] as $attempt) {
+            $run = AutomationRun::query()->create(['status' => 'running']);
+            $record = ReleaseJob::query()->create([
+                'automation_run_id' => $run->id, 'soundfresh_release_id' => 'RETRY-'.$attempt,
+                'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/retry-'.$attempt,
+                'idempotency_key' => 'retry-status-'.$attempt, 'release_title' => 'Retry fixture',
+                'status' => 'completed', 'checkpoint' => 'draft_saved', 'soundon_check_status' => 'queued',
+            ]);
+            $check = new CheckSoundOnReleaseStatus($record->id, $run->id);
+            $queueJob = \Mockery::mock(\Illuminate\Contracts\Queue\Job::class);
+            $queueJob->shouldReceive('attempts')->andReturn($attempt);
+            if ($attempt === 1) $queueJob->shouldReceive('release')->once()->with(15);
+            else $queueJob->shouldNotReceive('release');
+            $check->setJob($queueJob);
+            app()->call([$check, 'handle']);
+            $this->assertSame($attempt === 1 ? 'queued' : 'failed', $record->fresh()->soundon_check_status);
+            $this->assertSame($attempt === 1 ? AutomationRunStatus::Running : AutomationRunStatus::Completed, $run->fresh()->status);
+        }
+    }
+
     public function test_uncertain_worker_result_is_not_absence_and_does_not_erase_other_matches(): void
     {
         AutomationAccount::query()->create(['platform' => 'soundon', 'name' => 'SoundOn', 'status' => 'active',
@@ -893,16 +918,10 @@ final class ReleaseStatusTest extends TestCase
 
         app()->call([new QueueSoundOnStatusChecks(null, 'uploading'), 'handle']);
 
-        Queue::assertPushed(CheckSoundOnReleaseStatus::class, function ($queued): bool {
-            $releaseIds = ReleaseJob::query()
-                ->whereIn('id', $queued->releaseJobIds)
-                ->pluck('soundfresh_release_id')
-                ->sort()
-                ->values()
-                ->all();
-
-            return $releaseIds === ['SF-NEW-UPLOADING', 'SF-SAVED-REJECTED', 'SF-SAVED-REVIEW'];
-        });
+        foreach (['SF-NEW-UPLOADING', 'SF-SAVED-REJECTED', 'SF-SAVED-REVIEW'] as $releaseId) {
+            Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => count($queued->releaseJobIds) === 1
+                && ReleaseJob::find($queued->releaseJobIds[0])?->soundfresh_release_id === $releaseId);
+        }
         $this->assertSame('queued', ReleaseJob::query()->where('soundfresh_release_id', 'SF-SAVED-REVIEW')->sole()->soundon_check_status);
         $this->assertSame('queued', ReleaseJob::query()->where('soundfresh_release_id', 'SF-SAVED-REJECTED')->sole()->soundon_check_status);
     }
@@ -1027,14 +1046,8 @@ final class ReleaseStatusTest extends TestCase
         $this->assertSame('queued', $checked->soundon_check_status);
         $new = ReleaseJob::query()->where('soundfresh_release_id', 'SF-NEW-STATUS')->sole();
         $this->assertSame('queued', $new->soundon_check_status);
-        Queue::assertPushed(CheckSoundOnReleaseStatus::class, function ($queued) use ($checked, $new): bool {
-            $ids = $queued->releaseJobIds;
-            sort($ids);
-            $expected = [$checked->id, $new->id];
-            sort($expected);
-
-            return $ids === $expected;
-        });
+        Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => $queued->releaseJobIds === [$checked->id]);
+        Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($queued) => $queued->releaseJobIds === [$new->id]);
     }
 
     public function test_installer_kills_and_removes_old_worker_files_before_extracting_update(): void

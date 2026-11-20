@@ -145,10 +145,10 @@ final class QueueSoundOnStatusChecks implements ShouldQueue
                     'soundon_check_finished_at' => null,
                 ]);
             }
-            $underReviewJobs->pluck('id')->chunk(5)->each(
+            $underReviewJobs->pluck('id')->chunk(1)->each(
                 fn ($ids) => CheckSoundOnReleaseStatus::dispatch($ids->values()->all(), $run->id, 'under_review')
             );
-            $uploadingJobs->pluck('id')->chunk(5)->each(
+            $uploadingJobs->pluck('id')->chunk(1)->each(
                 fn ($ids) => CheckSoundOnReleaseStatus::dispatch($ids->values()->all(), $run->id, 'uploading')
             );
             if ($jobs->isEmpty()) {

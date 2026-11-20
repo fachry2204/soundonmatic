@@ -317,7 +317,7 @@ final class ReleaseStatus extends Component
             ]);
         }
 
-        $jobs->pluck('id')->chunk(5)->each(
+        $jobs->pluck('id')->chunk(1)->each(
             fn ($ids) => CheckSoundOnReleaseStatus::dispatch($ids->values()->all(), null, 'uploading')
         );
 

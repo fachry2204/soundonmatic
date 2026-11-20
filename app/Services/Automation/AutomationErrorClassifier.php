@@ -65,7 +65,8 @@ final class AutomationErrorClassifier
             }
             return ['code' => 'SOUNDON_UI_STALLED', 'disposition' => 'retry'];
         }
-        if ((str_contains($message, 'LOCATOR.CLICK') || str_contains($message, 'LOCATOR.WAITFOR')) && str_contains($message, 'TIMEOUT')) {
+        if ((str_contains($message, 'LOCATOR.CLICK') || str_contains($message, 'LOCATOR.WAITFOR'))
+            && (str_contains($message, 'TIMEOUT') || str_contains($message, 'OUTSIDE OF THE VIEWPORT'))) {
             return ['code' => 'UI_INTERACTION_TIMEOUT', 'disposition' => 'retry'];
         }
         foreach (['CAPTCHA' => 'AUTH_CAPTCHA_REQUIRED', 'OTP' => 'AUTH_OTP_REQUIRED', 'MANUAL_AUTH' => 'AUTH_MANUAL_REQUIRED'] as $needle => $code) {

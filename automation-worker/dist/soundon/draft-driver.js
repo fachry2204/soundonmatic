@@ -1426,14 +1426,26 @@ export async function setScopedTime(scope, label) {
     const timeSelect = field.getByRole("combobox").filter({ visible: true }).first();
     if (!(await timeSelect.count()))
         throw new Error(`SOUNDON_UI_CHANGED:time_combobox:${label}`);
-    await timeSelect.click({ force: true });
-    let options = page.getByRole("option").filter({ visible: true });
-    if (!(await options.first().isVisible().catch(() => false))) {
-        options = page
-            .locator('[role="option"]:visible, .semi-select-option:visible')
-            .filter({ visible: true });
+    // A date change can replace the select during its first opening. Recover
+    // only the dropdown, never restart the album or re-submit the release.
+    let options = page.locator('[role="option"]:visible,.semi-select-option:visible');
+    let opened = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        await clickEntityControl(timeSelect);
+        const selectInput = timeSelect.locator('input').first();
+        const controlledId = await timeSelect.getAttribute('aria-controls')
+            ?? (await selectInput.count() ? await selectInput.getAttribute('aria-controls') : null);
+        options = controlledId
+            ? page.locator(`[id=${JSON.stringify(controlledId)}]`).locator('[role="option"]:visible,.semi-select-option:visible')
+            : page.locator('[role="option"]:visible,.semi-select-option:visible');
+        opened = await options.first().waitFor({ state: 'visible', timeout: attempt === 2 ? 10000 : 5000 })
+            .then(() => true).catch(() => false);
+        if (opened)
+            break;
+        await page.keyboard.press('Escape');
     }
-    await options.first().waitFor({ state: "visible", timeout: 20_000 });
+    if (!opened)
+        throw new Error(`SOUNDON_UI_CHANGED:time_dropdown_not_opened:${label}`);
     let midnight = options
         .filter({ hasText: /^12:00\s*AM(?:\s*\(00:00\))?$/i })
         .first();
@@ -1444,7 +1456,7 @@ export async function setScopedTime(scope, label) {
         const available = await options.allInnerTexts();
         throw new Error(`SOUNDON_UI_CHANGED:time_option:${available.join("|")}`);
     }
-    await midnight.click({ force: true });
+    await clickEntityControl(midnight);
     await scope.page().waitForTimeout(500);
     const displayed = (await timeSelect.innerText()).replace(/\s+/g, " ").trim();
     if (!/12:00\s*AM|00:00/i.test(displayed))
@@ -1529,14 +1541,14 @@ async function setScopedInput(scope, label, value) {
     throw new Error(`SOUNDON_UI_CHANGED:input:${label}:count=${inputDetails.length}:` +
         `values=${inputDetails.map((item) => item.value).join("|")}`);
 }
-async function selectCalendarDate(input, isoDate) {
+export async function selectCalendarDate(input, isoDate) {
     const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!match)
         return false;
     const targetYear = Number(match[1]);
     const targetMonth = Number(match[2]);
     const targetDay = Number(match[3]);
-    await input.click({ force: true });
+    await clickEntityControl(input);
     const page = input.page();
     const picker = page.locator(".semi-datepicker:visible").last();
     const opened = await picker
@@ -1571,25 +1583,27 @@ async function selectCalendarDate(input, isoDate) {
         const iconIndex = monthDifference > 0
             ? (iconCount >= 4 ? 2 : iconCount - 1)
             : (iconCount >= 4 ? 1 : 0);
-        await icons.nth(iconIndex).click({ force: true });
+        await clickEntityControl(icons.nth(iconIndex));
         await page.waitForTimeout(250);
     }
-    const enabledDay = picker
-        .locator(".semi-datepicker-day:not(.semi-datepicker-day-disabled)")
-        .filter({ hasText: new RegExp(`^${targetDay}$`) })
-        .first();
+    const days = picker.locator('.semi-datepicker-day:not(.semi-datepicker-day-disabled):not([aria-disabled="true"])');
+    // Adjacent months can repeat the same day number. SoundOn exposes the
+    // complete ISO date; prefer that identity over the first matching "27".
+    const exactDay = picker.locator(`.semi-datepicker-day[title="${isoDate}"],.semi-datepicker-day[aria-label="${isoDate}"]`).and(days);
+    const hasDateIdentity = await days.evaluateAll(elements => elements.some(el => /^\d{4}-\d{2}-\d{2}/.test(el.getAttribute('title') ?? el.getAttribute('aria-label') ?? '')));
+    const enabledDay = (hasDateIdentity ? exactDay : days.filter({ hasText: new RegExp(`^${targetDay}$`) })).first();
     if (!(await enabledDay.count())) {
         await page.keyboard.press("Escape");
         return false;
     }
-    await enabledDay.click({ force: true });
+    await clickEntityControl(enabledDay);
     await page.waitForTimeout(500);
     const confirm = picker
         .getByRole("button", { name: /^(?:Confirm|OK|Apply)$/i })
         .filter({ visible: true })
         .last();
     if (await confirm.count()) {
-        await confirm.click({ force: true });
+        await clickEntityControl(confirm);
         await page.waitForTimeout(300);
     }
     const selectedValue = await input.inputValue().catch(() => "");
@@ -1615,7 +1629,7 @@ async function selectCalendarDate(input, isoDate) {
             .waitFor({ state: "hidden", timeout: 3_000 })
             .catch(() => undefined);
     }
-    return persisted;
+    return persisted && normalizeDate(await input.inputValue().catch(() => '')) === isoDate;
 }
 async function fillControlledInput(input, value) {
     await input.evaluate((element) => {

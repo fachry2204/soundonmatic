@@ -40,7 +40,9 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // Desktop workers can run for 2700 seconds. A reservation must
+            // outlive that timeout so a second consumer cannot reclaim it.
+            'retry_after' => max(3000, (int) env('DB_QUEUE_RETRY_AFTER', 3000)),
             'after_commit' => false,
         ],
 
