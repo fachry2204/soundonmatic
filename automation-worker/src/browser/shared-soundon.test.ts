@@ -16,6 +16,15 @@ describe('shared SoundOn browser', () => {
         } }));
     });
     const state = { cookies: [{ name: 'session', value: 'same', domain: '.soundon.global', path: '/', expires: -1, httpOnly: true, secure: true, sameSite: 'Lax' as const }], origins: [] };
+    it('bounds status-check waiting without closing an active upload', async () => {
+        const active = await acquireSoundOnPage(state);
+        try {
+            const other = { ...state, cookies: [{ ...state.cookies[0]!, value: 'other' }] };
+            await expect(acquireSoundOnPage(other, { waitTimeoutMs: 20 })).rejects.toThrow('SOUNDON_SHARED_SESSION_WAIT_TIMEOUT');
+            expect(mocked.closed).not.toHaveBeenCalled();
+            expect(mocked.create).toHaveBeenCalledTimes(1);
+        } finally { await active.release(); }
+    });
     it('shares one context across three pages and retains it between operations', async () => {
         const [a, b, c] = await Promise.all([acquireSoundOnPage(state), acquireSoundOnPage(state), acquireSoundOnPage(state)]);
         expect(mocked.create).toHaveBeenCalledTimes(1);

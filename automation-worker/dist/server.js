@@ -851,7 +851,7 @@ app.post("/v1/soundon/releases/statuses", async (req, reply) => {
     const lookups = Array.isArray(body.items) ? body.items.filter((item) => typeof item?.key === "string" && typeof item?.title === "string" && typeof item?.artist === "string") : [];
     if (!lookups.length)
         return { success: true, data: { matches: {} } };
-    const lease = await acquireSoundOnPage(body.session_state);
+    const lease = await acquireSoundOnPage(body.session_state, { waitTimeoutMs: 20_000 });
     const browser = lease.context;
     activeSoundOnStatusPages.add(lease.page);
     try {

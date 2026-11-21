@@ -45,8 +45,9 @@ function fingerprint(state) {
     return createHash('sha256').update(JSON.stringify([cookies, origins])).digest('hex');
 }
 /** Each job owns one page; the authenticated browser context is shared. */
-export async function acquireSoundOnPage(state) {
+export async function acquireSoundOnPage(state, options = {}) {
     const token = fingerprint(state);
+    const waitDeadline = Date.now() + (options.waitTimeoutMs ?? 1_200_000);
     while (true) {
         const previous = lock;
         let unlock;
@@ -73,7 +74,7 @@ export async function acquireSoundOnPage(state) {
                         let timer;
                         try {
                             await Promise.race([idle, new Promise((_, reject) => {
-                                    timer = setTimeout(() => reject(new Error('SOUNDON_SHARED_SESSION_WAIT_TIMEOUT:Menunggu sesi SoundOn aktif selesai terlalu lama.')), 1_200_000);
+                                    timer = setTimeout(() => reject(new Error('SOUNDON_SHARED_SESSION_WAIT_TIMEOUT:Sesi upload sedang aktif; pemeriksaan perlu dijadwalkan ulang tanpa mengganti profil.')), Math.max(1, waitDeadline - Date.now()));
                                 })]);
                         }
                         finally {

@@ -28,6 +28,34 @@ final class ReleaseStatusTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_busy_soundon_session_yields_queue_slot_and_reschedules_without_failing(): void
+    {
+        Queue::fake();
+        AutomationAccount::query()->create(['platform' => 'soundon', 'name' => 'SoundOn', 'status' => 'active',
+            'session_state_encrypted' => ['cookies' => []], 'last_authenticated_at' => now()]);
+        $run = AutomationRun::query()->create(['status' => 'running']);
+        $record = ReleaseJob::query()->create(['automation_run_id' => $run->id, 'soundfresh_release_id' => 'BUSY',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/busy', 'idempotency_key' => 'busy-status',
+            'release_title' => 'Busy fixture', 'status' => 'completed', 'checkpoint' => 'draft_saved', 'soundon_check_status' => 'queued']);
+        Http::fake(['*' => Http::response(['success' => false, 'error' => 'SOUNDON_SHARED_SESSION_WAIT_TIMEOUT:busy'], 503)]);
+        $check = (new CheckSoundOnReleaseStatus($record->id, $run->id))->withFakeQueueInteractions();
+        app()->call([$check, 'handle']);
+        $this->assertSame('queued', $record->fresh()->soundon_check_status);
+        $this->assertSame(AutomationRunStatus::Running, $run->fresh()->status);
+        Queue::assertPushed(CheckSoundOnReleaseStatus::class, fn ($job) => $job->releaseJobIds === [$record->id]
+            && $job->sessionWaitStartedAt !== null && $job->delay === 30);
+
+        Queue::fake();
+        $expired = new CheckSoundOnReleaseStatus($record->id, $run->id, 'uploading', now()->subMinutes(21)->timestamp);
+        $queueJob = \Mockery::mock(\Illuminate\Contracts\Queue\Job::class);
+        $queueJob->shouldReceive('attempts')->andReturn(3);
+        $queueJob->shouldNotReceive('release');
+        $expired->setJob($queueJob);
+        app()->call([$expired, 'handle']);
+        $this->assertSame('failed', $record->fresh()->soundon_check_status);
+        Queue::assertNotPushed(CheckSoundOnReleaseStatus::class);
+    }
+
     public function test_temporary_status_failure_retries_automatically_and_stops_after_three_attempts(): void
     {
         AutomationAccount::query()->create(['platform' => 'soundon', 'name' => 'SoundOn', 'status' => 'active',

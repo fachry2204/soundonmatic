@@ -2124,7 +2124,7 @@ async function setSearchFieldValue(
                             throw new Error(`SOUNDON_UI_CHANGED:contributor_controls:${label}`);
                         await clickEntityControl(selectControl.first());
                         await page.waitForTimeout(300);
-                        const exactRole = new RegExp(`^${escapeRegExp(contributorRole)}$`, "i");
+                        const exactRole = soundOnRolePattern(contributorRole);
                         const roleOption = page.locator(".semi-select-option-text")
                             .filter({ hasText: exactRole })
                             .or(page.getByRole('option', { name: exactRole }))
@@ -2133,7 +2133,10 @@ async function setSearchFieldValue(
                         // delay must not become a false role_unavailable error.
                         await roleOption.waitFor({ state: 'visible', timeout: 8000 }).catch(() => undefined);
                         if (!(await roleOption.count())) {
-                            if (!optional) throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:role_unavailable:${contributorRole}`);
+                            if (!optional) {
+                                const available = await page.locator('.semi-select-option-text:visible,[role="option"]:visible').allTextContents();
+                                throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:role_unavailable:${contributorRole}:available=${available.map(text => text.trim()).filter(Boolean).slice(0, 40).join('|')}`);
+                            }
                             // Contributor roles are secondary metadata. SoundOn
                             // regularly changes this catalog; skip only the
                             // unsupported entry instead of rejecting the release.
@@ -2186,6 +2189,15 @@ async function setSearchFieldValue(
                         const exactValue = new RegExp(`^${escapedValue}$`, "i");
                         let entitySelected = false;
                         let createdEntity = false;
+                        // Plain writer Name forms have no search dropdown.
+                        // Do not wait 20 seconds for artist results that cannot
+                        // appear; the submitted card is still verified below.
+                        if (/^(?:Songwriters|Lyricists)$/i.test(label)
+                            && await dialog.getByText('Name', { exact: true }).count()
+                            && !await dialog.locator('.semi-select,[role="combobox"],[role="listbox"]').count()
+                            && await submit.first().isEnabled().catch(() => false)) {
+                            entitySelected = sameEntityName(await activeInput.inputValue(), value);
+                        }
                         // Semi portals can have a zero-size wrapper while the
                         // dropdown's children are visible. Check visibility on
                         // the actual options, not the portal container.
@@ -2375,7 +2387,7 @@ async function setSearchFieldValue(
                                 `SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:submit_disabled:${dialogMessage}`,
                             );
                         }
-                        await resilientClick(submitButton);
+                        await clickEntityControl(submitButton);
                         let savedAfterSubmit = await waitForEntitySave(
                             page,
                             dialog,
@@ -2384,7 +2396,7 @@ async function setSearchFieldValue(
                             entitySaveTimeout,
                         );
                         if (!savedAfterSubmit && contributorRole && await retryMissingContributorName(page, dialog, value)) {
-                            await resilientClick(submitButton);
+                            await clickEntityControl(submitButton);
                             savedAfterSubmit = await waitForEntitySave(page, dialog, label, value, entitySaveTimeout);
                         }
                         if (!savedAfterSubmit) {
@@ -2615,7 +2627,13 @@ async function ensureDialogEntityName(
         await pasteInputValue(resolvedInput, value);
         await dialog.page().waitForTimeout(300);
     }
-    const persisted = await resolvedInput.inputValue().catch(() => "");
+    // Plain songwriter forms may commit the typed Name only on blur.
+    // A matching DOM value alone does not prove React has committed it.
+    await resolvedInput.press('Tab');
+    await dialog.page().waitForTimeout(150);
+    const values = await resolvedInput.evaluateAll(elements => elements.map(el => (el as HTMLInputElement).value));
+    if (!values.length) return; // Rendering may replace the name with static text.
+    const persisted = values[0] ?? '';
     if (!sameEntityName(persisted, value)) {
         throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:dialog_name:${value}:actual=${persisted}`);
     }
@@ -2977,6 +2995,13 @@ export function contributorDetails(
     defaultRole: string,
 ): { name: string; role: string } {
     return contributorEntries(value, defaultRole)[0] ?? { name: "", role: defaultRole };
+}
+
+export function soundOnRolePattern(role: string): RegExp {
+    // Equivalent labels only: never replace a vocal editor with a vocalist
+    // or producer just to pass validation. Match against live SoundOn options.
+    if (/^vocal edit(?:ed|or|ing)?$/i.test(role.trim())) return /^Vocal Edit(?:ed|or|ing)?$/i;
+    return new RegExp(`^${escapeRegExp(role.trim())}$`, 'i');
 }
 
 export function contributorEntries(

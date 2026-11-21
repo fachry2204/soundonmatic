@@ -26,7 +26,7 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
 
     public readonly ?string $releaseJobId;
 
-    public function __construct(string|array $releaseJobIds, public readonly ?string $statusRunId = null, public readonly string $sourceStatus = 'uploading')
+    public function __construct(string|array $releaseJobIds, public readonly ?string $statusRunId = null, public readonly string $sourceStatus = 'uploading', public readonly ?int $sessionWaitStartedAt = null)
     {
         $this->releaseJobIds = array_values((array) $releaseJobIds);
         $this->releaseJobId = is_string($releaseJobIds) ? $releaseJobIds : null;
@@ -154,6 +154,21 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
             $unfinished = ReleaseJob::query()->whereIn('id', $jobs->pluck('id'))
                 ->whereIn('soundon_check_status', ['queued', 'checking']);
             $classification = app(AutomationErrorClassifier::class)->classify($exception);
+            // Yield this queue slot while another profile snapshot is in use.
+            // Other releases can proceed; never start a competing SoundOn login.
+            $waitStarted = $this->sessionWaitStartedAt ?? now()->timestamp;
+            if ($this->job && str_contains($exception->getMessage(), 'SOUNDON_SHARED_SESSION_WAIT_TIMEOUT')
+                && now()->timestamp - $waitStarted < 1200) {
+                $ids = $unfinished->pluck('id')->all();
+                if ($ids !== []) {
+                    $unfinished->update(['soundon_check_status' => 'queued', 'soundon_check_progress' => 5,
+                        'soundon_check_error' => 'Menunggu sesi upload aktif; pemeriksaan dilanjutkan otomatis.',
+                        'soundon_check_finished_at' => null]);
+                    self::dispatch($ids, $this->statusRunId, $this->sourceStatus, $waitStarted)->delay(30);
+                }
+
+                return;
+            }
             if ($this->job && $this->attempts() < $this->tries && $classification['disposition'] === 'retry'
                 && $classification['code'] !== 'AUTH_SESSION_EXPIRED') {
                 $unfinished->update([
