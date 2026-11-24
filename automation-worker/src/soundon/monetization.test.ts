@@ -1,8 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chromium } from 'playwright';
-import { enableMonetizationOption, enableStandardMonetization } from './draft-driver.js';
+import { enableMonetizationOption, enableStandardMonetization, setTikTokPreRelease } from './draft-driver.js';
 
 describe('SoundOn monetization eligibility', () => {
+    it('skips TikTok pre-release without entering a date', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<article><h3>TikTok pre-release</h3>
+                <label><input type="radio" name="tiktok" checked>Turn on TikTok pre-release</label>
+                <label><input type="radio" name="tiktok" id="skip">Skip for now</label>
+                <input id="date" value=""></article>`);
+            await setTikTokPreRelease(page, '');
+            expect(await page.locator('#skip').isChecked()).toBe(true);
+            expect(await page.locator('#date').inputValue()).toBe('');
+        } finally { await browser.close(); }
+    }, 10000);
+
+    it('disables YouTube Shorts pre-release without entering a date', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<section><h3>YouTube Content ID</h3><button role="switch" aria-checked="true">Enabled</button></section>
+                <section><span>Pre-release on YouTube Shorts</span><input type="checkbox" checked>
+                <span>Pre-release date</span><input id="date" value=""></section>`);
+            await enableStandardMonetization(page, '');
+            expect(await page.locator('input[type=checkbox]').isChecked()).toBe(false);
+            expect(await page.locator('#date').inputValue()).toBe('');
+        } finally { await browser.close(); }
+    }, 10000);
+
     it('does not click a genre-ineligible store or force dependent pre-release fields', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

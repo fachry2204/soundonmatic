@@ -1,26 +1,22 @@
-<div wire:init="checkForUpdate(true)">
+<div wire:init="checkForUpdate(true)" @if($popup) wire:poll.60s="checkForUpdate(true)" @endif>
     @if($popup)
         @if($showPopup)
             <dialog x-data x-init="$el.showModal()" x-on:cancel.prevent="if (!$el.querySelector('[data-update-dismiss]').disabled) { $el.close(); $wire.dismissPopup() }" aria-labelledby="system-update-title" aria-describedby="system-update-description" class="system-update-dialog m-auto max-h-[90vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
-                <span class="badge badge--success">{{ $updatedFrom ? 'Pembaruan berhasil' : 'Update tersedia' }}</span>
-                <h2 id="system-update-title" class="mt-4 text-xl font-bold">{{ $updatedFrom ? 'Sistem berhasil diperbarui' : 'Sistem versi terbaru tersedia' }}</h2>
-                <p class="my-4 text-2xl font-bold">v{{ $updatedFrom ?: $currentVersion }} <span aria-label="ke">→</span> v{{ $updatedFrom ? $currentVersion : $latestVersion }}</p>
-                <p id="system-update-description" class="text-sm leading-6 text-slate-600">{{ $updatedFrom ? 'Pembaruan telah selesai dipasang. Anda sekarang menggunakan versi baru SoundMatic.' : 'Klik Update Sistem. Pembaruan diunduh dan dipasang otomatis, lalu aplikasi dibuka kembali. Tidak perlu mengunduh atau menjalankan EXE secara manual. Data dan sesi login tetap dipertahankan.' }}</p>
-                @if(!$updatedFrom)
+                <span class="badge badge--success">Update tersedia</span>
+                <h2 id="system-update-title" class="mt-4 text-xl font-bold">Sistem versi terbaru tersedia</h2>
+                <p class="my-4 text-2xl font-bold">v{{ $currentVersion }} <span aria-label="ke">→</span> v{{ $latestVersion }}</p>
+                <p id="system-update-description" class="text-sm leading-6 text-slate-600">Klik Update Sistem. Pembaruan diunduh dan dipasang otomatis, lalu aplikasi dibuka kembali. Tidak perlu mengunduh atau menjalankan EXE secara manual. Data dan sesi login tetap dipertahankan.</p>
                     <p class="mt-3 text-sm leading-6 text-slate-600">Selesaikan upload dan pemeriksaan rilisan sebelum memperbarui aplikasi.</p>
-                @endif
-                @if($message && !$updatedFrom)
+                @if($message)
                     <p class="mt-4 rounded-lg bg-slate-100 p-3 text-sm leading-6" role="status">{{ $message }}</p>
                 @endif
                 <p wire:loading wire:target="downloadAndInstall" class="mt-4 text-sm leading-6" role="status">Mengunduh dan memverifikasi pembaruan. Jangan tutup aplikasi...</p>
                 <div class="mt-6 flex flex-wrap justify-end gap-3">
-                    <button type="button" data-update-dismiss wire:click="dismissPopup" wire:loading.attr="disabled" @disabled($installStarted) class="secondary-button">{{ $updatedFrom ? 'Mulai gunakan versi baru' : 'Nanti' }}</button>
-                    @if(!$updatedFrom)
+                    <button type="button" data-update-dismiss wire:click="dismissPopup" wire:loading.attr="disabled" @disabled($installStarted) class="secondary-button">Nanti</button>
                         <button type="button" wire:click="downloadAndInstall" wire:loading.attr="disabled" @disabled(!$installerUrl || $installStarted) class="primary-button" autofocus>
                             <span wire:loading.remove wire:target="downloadAndInstall">Update Sistem</span>
                             <span wire:loading wire:target="downloadAndInstall">Menyiapkan update...</span>
                         </button>
-                    @endif
                 </div>
             </dialog>
         @endif

@@ -48,7 +48,19 @@ internal static class Program
         {
             this.silentUpdate = silentUpdate;
             Text = "SoundMatic Setup"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 540; Height = 330; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
-            Controls.Add(note); Controls.Add(install); Controls.Add(progress); Controls.Add(status); progress.Visible = false;
+            BackColor = Color.FromArgb(246, 248, 252);
+            Font = new Font("Segoe UI", 10);
+            var header = new Panel { Dock = DockStyle.Top, Height = 90, BackColor = Color.FromArgb(15, 23, 42), Padding = new Padding(26, 15, 26, 10) };
+            var brand = new Label { Dock = DockStyle.Top, Height = 36, Text = "SoundMatic", ForeColor = Color.White, Font = new Font("Segoe UI", 19, FontStyle.Bold) };
+            var subtitle = new Label { Dock = DockStyle.Fill, Text = "PENGATURAN APLIKASI", ForeColor = Color.FromArgb(165, 180, 252), Font = new Font("Segoe UI", 9, FontStyle.Bold) };
+            header.Controls.Add(subtitle); header.Controls.Add(brand);
+            var content = new Panel { Dock = DockStyle.Fill, Padding = new Padding(26, 8, 26, 18) };
+            status.Height = 46; status.TextAlign = ContentAlignment.MiddleLeft; status.ForeColor = Color.FromArgb(15, 23, 42);
+            note.Padding = new Padding(0, 8, 0, 8); note.ForeColor = Color.FromArgb(71, 85, 105);
+            install.Dock = DockStyle.Bottom; install.FlatStyle = FlatStyle.Flat; install.FlatAppearance.BorderSize = 0; install.BackColor = Color.FromArgb(79, 70, 229); install.ForeColor = Color.White; install.Font = new Font("Segoe UI", 10, FontStyle.Bold); install.Cursor = Cursors.Hand;
+            progress.Dock = DockStyle.Bottom;
+            content.Controls.Add(note); content.Controls.Add(progress); content.Controls.Add(install); content.Controls.Add(status);
+            ClientSize = new Size(560, 390); Controls.Add(content); Controls.Add(header); progress.Visible = false;
             install.Click += async (_, _) => await InstallAsync();
             if (silentUpdate)
             {

@@ -68,9 +68,6 @@ final class ApplicationUpdate extends Component
     public function checkForUpdate(bool $automatic = false): void
     {
         Gate::authorize('sessions.manage');
-        if ($automatic && $this->updatedFrom) {
-            return;
-        }
         $repository = (string) config('automation.update_repository', 'fachry2204/soundonmatic');
         try {
             $fetch = fn () => Http::acceptJson()
@@ -80,7 +77,7 @@ final class ApplicationUpdate extends Component
                 ->throw()
                 ->json();
             $release = $automatic
-                ? Cache::remember('soundmatic-release:'.$repository, 300, $fetch)
+                ? Cache::remember('soundmatic-release:'.$repository, 60, $fetch)
                 : $fetch();
             if (! is_array($release)) {
                 throw new \RuntimeException('Respons update tidak valid.');
@@ -114,6 +111,9 @@ final class ApplicationUpdate extends Component
             $this->installerUrl = null;
         }
         $this->updateAvailable = version_compare($this->latestVersion, $this->currentVersion, '>');
+        if (! $this->updateAvailable && $this->popup) {
+            $this->showPopup = false;
+        }
         if ($this->popup && $this->updateAvailable
             && (! $automatic || session('soundmatic.update-dismissed') !== $this->latestVersion)) {
             $this->showPopup = true;
@@ -241,10 +241,10 @@ final class ApplicationUpdate extends Component
         Gate::authorize('sessions.manage');
         $this->showPopup = false;
         // Derive dismissal keys from trusted data, not editable Livewire properties.
-        if ($this->completionId) {
-            session()->put('soundmatic.update-completed', $this->completionId);
-        } elseif ($this->latestVersion) {
+        if ($this->latestVersion) {
             session()->put('soundmatic.update-dismissed', $this->latestVersion);
+        } elseif ($this->completionId) {
+            session()->put('soundmatic.update-completed', $this->completionId);
         }
     }
 
@@ -264,7 +264,6 @@ final class ApplicationUpdate extends Component
         if (session('soundmatic.update-completed') !== $completionId) {
             $this->completionId = $completionId;
             $this->updatedFrom = $receipt['from'];
-            $this->showPopup = $this->popup;
         }
     }
 

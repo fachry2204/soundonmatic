@@ -150,11 +150,6 @@ async function createKnownSoundOnDraft(
     const tracks = Array.isArray(metadata.tracks) ? metadata.tracks : [];
     if (tracks.length === 0) throw new Error("METADATA_MISSING:tracks");
 
-    const soundOnPreReleaseDate = resolveSoundOnPreReleaseDate(
-        metadata.pre_release_date,
-        metadata.release_date,
-    );
-
     if (tracks.length > 1) return createKnownSoundOnAlbumDraft(page, metadata, tracks);
 
     await openSingleReleaseForm(page);
@@ -386,7 +381,7 @@ async function createKnownSoundOnDraft(
     await continueWithCurrentReleaseDate(page);
     await setTikTokPreRelease(
         page,
-        soundOnPreReleaseDate,
+        "",
     );
     await advanceWizardStep(page);
 
@@ -429,7 +424,7 @@ async function createKnownSoundOnDraft(
     );
     await enableStandardMonetization(
         page,
-        soundOnPreReleaseDate,
+        "",
     );
     await advanceWizardStep(page);
 
@@ -635,7 +630,7 @@ async function createKnownSoundOnAlbumDraft(
     const releaseDateSet = await setTextIfPresent(page, ["Release date", "Planned release date"], releaseDate);
     if (releaseDate && !releaseDateSet) throw new Error("SOUNDON_UI_CHANGED:field:Release date");
     await continueWithCurrentReleaseDate(page);
-    await setTikTokPreRelease(page, resolveSoundOnPreReleaseDate(metadata.pre_release_date, metadata.release_date));
+    await setTikTokPreRelease(page, "");
     await advanceWizardStep(page);
     const more = page.getByText("More release options", { exact: true }).filter({ visible: true }).first();
     if (await more.count()) await more.click({ force: true });
@@ -645,7 +640,7 @@ async function createKnownSoundOnAlbumDraft(
     await setScopedRadio(page, "Does this track have an existing publishing administrator or publisher?", "No");
     await enableStandardMonetization(
         page,
-        resolveSoundOnPreReleaseDate(metadata.pre_release_date, metadata.release_date),
+        "",
         true,
     );
     // Some EP/Album forms finish directly on the publishing-rights page and
@@ -3188,26 +3183,14 @@ export function normalizeArtistMetadata(value: unknown): string {
 }
 
 export function resolveSoundOnPreReleaseDate(
-    preReleaseValue: unknown,
     releaseValue: unknown,
     todayValue: unknown = new Date(),
 ): string {
-    let preReleaseDate = normalizeDate(preReleaseValue);
     const releaseDate = normalizeDate(releaseValue);
     if (!releaseDate) return "";
-
-    // Several Soundfresh layouts omit the pre-release table value even though
-    // the release should receive the standard schedule. Use seven days before
-    // the planned release as the deterministic fallback.
-    if (!preReleaseDate) {
-        const fallback = new Date(`${releaseDate}T00:00:00Z`);
-        if (Number.isNaN(fallback.getTime())) return "";
-        fallback.setUTCDate(fallback.getUTCDate() - 7);
-        preReleaseDate = normalizeDate(fallback);
-    }
-
     const release = new Date(`${releaseDate}T00:00:00Z`);
-    const preRelease = new Date(`${preReleaseDate}T00:00:00Z`);
+    if (Number.isNaN(release.getTime())) return "";
+    const preRelease = new Date(release.getTime() - 7 * 86_400_000);
     const todayDate = normalizeDate(todayValue);
     const today = new Date(`${todayDate}T00:00:00Z`);
     if (
@@ -3216,17 +3199,8 @@ export function resolveSoundOnPreReleaseDate(
         Number.isNaN(today.getTime())
     ) return "";
 
-    // SoundOn recommends at least seven full days between TikTok pre-release
-    // and the official release. A closer date opens a blocking warning; skip
-    // this optional feature instead of failing the entire draft.
-    if (preRelease > release) return "";
-    const daysBeforeRelease = (release.getTime() - preRelease.getTime()) / 86_400_000;
-    if (daysBeforeRelease < 7) return "";
-
-    // Also keep optional pre-release disabled for elapsed dates. This guards
-    // malformed/source values without blocking the main draft creation.
     if (preRelease <= today) return "";
-    return preReleaseDate;
+    return normalizeDate(preRelease);
 }
 
 export function writerFieldEntries(value: unknown): {

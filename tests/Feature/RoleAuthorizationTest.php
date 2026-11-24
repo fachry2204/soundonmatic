@@ -45,4 +45,32 @@ class RoleAuthorizationTest extends TestCase
         $this->assertTrue($admin->can('mappings.manage'));
         $this->assertTrue($admin->can('sessions.manage'));
     }
+
+    public function test_existing_roles_receive_release_status_access_without_losing_other_permissions(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+        $role = $admin->roles->first();
+        $role->revokePermissionTo('release-status.view');
+
+        $migration = require database_path('migrations/2026_11_24_000001_grant_release_status_permission.php');
+        $migration->up();
+
+        $this->actingAs($admin->fresh())->get('/release-status')->assertOk();
+        $this->assertTrue($admin->fresh()->can('automation.run'));
+    }
+
+    public function test_existing_admin_receives_user_management_permission(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+        $admin->roles->first()->revokePermissionTo('users.manage');
+
+        $migration = require database_path('migrations/2026_11_24_000002_grant_user_management_permission.php');
+        $migration->up();
+
+        $this->actingAs($admin->fresh())->get('/users')->assertOk();
+        $this->assertTrue($admin->fresh()->can('automation.run'));
+        $this->assertFalse(\Spatie\Permission\Models\Role::findByName('Viewer')->hasPermissionTo('users.manage'));
+    }
 }

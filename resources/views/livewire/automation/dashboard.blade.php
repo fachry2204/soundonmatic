@@ -20,24 +20,25 @@
             </div>
         @endif
 
-        <section class="page-heading">
+        <section class="page-heading dashboard-hero">
             <div>
-                <div class="eyebrow">Operations overview</div>
-                <h1 class="page-title">SoundOn Release Automation</h1>
-                <p class="page-subtitle">Pantau pipeline Soundfresh ke SoundOn, status sesi, dan pekerjaan yang membutuhkan tindakan dari satu tempat.</p>
+                <div class="eyebrow">Dashboard Operasional</div>
+                <span class="sr-only">SoundOn Release Automation</span><h1 class="page-title">Upload ke SoundOn</h1>
+                <p class="page-subtitle">Pantau proses pengunggahan rilisan dari Soundfresh ke SoundOn secara real-time.</p>
             </div>
             @can('automation.run')
                 <div class="dashboard-primary-actions">
                     <div class="flex flex-wrap items-center gap-3">
-                    <button wire:click="start" wire:loading.attr="disabled" wire:confirm="Bersihkan seluruh data monitor, status SoundOn, notifikasi, dan antrean lama lalu ambil ulang semua rilisan pending?" class="primary-button">
-                        <span wire:loading.remove wire:target="start">Ambil semua rilisan pending</span>
+                    <button wire:click="start" wire:loading.attr="disabled" wire:confirm="Bersihkan seluruh data monitor, status SoundOn, notifikasi, dan antrean lama lalu ambil ulang semua rilisan pending?" class="primary-button dashboard-cta">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>
+                        <span wire:loading.remove wire:target="start">Ambil Rilisan</span>
                         <span wire:loading wire:target="start">Menyiapkan...</span>
                     </button>
                     <span class="primary-button" style="background:#0f766e; cursor:default" role="status">
                         Upload otomatis aktif
                     </span>
                     <button type="button" wire:click="stopAllWorkers" wire:loading.attr="disabled" wire:confirm="Yakin ingin menghentikan SEMUA worker, antrean, dan proses automation yang sedang berjalan?" class="secondary-button" style="border-color:#f4b8bf;background:#fff1f3;color:#a72f3d;font-weight:700;">
-                        <span wire:loading.remove wire:target="stopAllWorkers">🛑 Hentikan Semua Worker</span>
+                        <span wire:loading.remove wire:target="stopAllWorkers">Hentikan Semua Worker</span>
                         <span wire:loading wire:target="stopAllWorkers">Menghentikan...</span>
                     </button>
                     </div>
@@ -47,34 +48,21 @@
         </section>
 
         <section class="metric-grid">
-            <article class="metric-card" style="--metric-soft:#eeeeff">
-                <p class="metric-label">Pending Soundfresh</p>
-                <p class="metric-value">{{ $pendingSoundfreshCount }}</p>
-                <p class="metric-meta">Rilisan Pending pada monitor aktif</p>
+            <article class="metric-card metric-card--queue" style="--metric-soft:#eef2ff">
+                <span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7l8-4 8 4-8 4-8-4zm0 5l8 4 8-4M4 17l8 4 8-4"/></svg></span>
+                <div><span class="sr-only">Pending Soundfresh</span><p class="metric-label">Antrian</p><p class="metric-value">{{ $pendingSoundfreshCount }}</p><p class="metric-meta">Menunggu diproses</p></div>
             </article>
-            <article class="metric-card" style="--metric-soft:#fff4df">
-                <p class="metric-label">Berhasil upload ke SoundOn</p>
-                <p class="metric-value" style="color:#047857">{{ $soundonUploadSuccessCount }}</p>
-                <p class="metric-meta">Berhasil tersimpan sebagai draft SoundOn</p>
+            <article class="metric-card metric-card--active" style="--metric-soft:#eef2ff">
+                <span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 14v5h14v-5"/></svg></span>
+                <div><p class="metric-label">Sedang Diproses</p><p class="metric-value">{{ $activeJobsCount }}</p><p class="metric-meta">Sedang diunggah ke SoundOn</p></div>
             </article>
-            <article class="metric-card" style="--metric-soft:#e8f8f2">
-                <p class="metric-label">Gagal upload ke SoundOn</p>
-                <p class="metric-value" style="color:#dc2626">{{ $soundonUploadFailedCount }}</p>
-                <p class="metric-meta">Rilisan gagal atau membutuhkan perhatian</p>
+            <article class="metric-card metric-card--success" style="--metric-soft:#e8f8f2">
+                <span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></span>
+                <div><span class="sr-only">Berhasil upload ke SoundOn</span><p class="metric-label">Berhasil</p><p class="metric-value">{{ $soundonUploadSuccessCount }}</p><p class="metric-meta">Berhasil diunggah</p></div>
             </article>
-            <article class="metric-card" style="--metric-soft:#edf4ff">
-                <p class="metric-label">Kesehatan platform</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                    @forelse ($accounts as $account)
-                        <span class="badge {{ $account->status === 'active' ? 'badge--success' : 'badge--warning' }}">
-                            <span class="status-dot {{ $account->status === 'active' ? 'status-dot--active' : 'status-dot--warning' }}"></span>
-                            {{ $account->platform->value }} · {{ $account->status }}
-                        </span>
-                    @empty
-                        <span class="text-xs text-slate-400">Belum diperiksa</span>
-                    @endforelse
-                </div>
-                <p class="metric-meta">Diperbarui otomatis setiap 10 detik</p>
+            <article class="metric-card metric-card--attention" style="--metric-soft:#fff7ed">
+                <span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5m0 4h.01M10.3 4.2L2.6 18a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 4.2a2 2 0 00-3.4 0z"/></svg></span>
+                <div><span class="sr-only">Gagal upload ke SoundOn</span><p class="metric-label">Perlu Perhatian</p><p class="metric-value">{{ $soundonUploadFailedCount }}</p><p class="metric-meta">Perlu tindakan agar bisa diunggah</p></div>
             </article>
         </section>
 
@@ -105,7 +93,7 @@
                             wire:confirm="Yakin ingin menghentikan SEMUA worker, antrean, dan proses automation yang sedang berjalan?" 
                             class="secondary-button" 
                             style="border-color:#f4b8bf;background:#fff1f3;color:#a72f3d;font-weight:700;">
-                            <span wire:loading.remove wire:target="stopAllWorkers">🛑 Hentikan Semua Worker</span>
+                            <span wire:loading.remove wire:target="stopAllWorkers">Hentikan Semua Worker</span>
                             <span wire:loading wire:target="stopAllWorkers">Menghentikan...</span>
                         </button>
                     </div>
@@ -129,10 +117,10 @@
                     @can('automation.run')
                         <div class="mt-4 flex items-center gap-2 pt-3 border-t border-slate-100">
                             <button type="button" wire:click="startWorkerProcess" wire:loading.attr="disabled" class="secondary-button text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;font-weight:600;">
-                                <span>▶ Start Worker</span>
+                                <span>Jalankan Worker</span>
                             </button>
                             <button type="button" wire:click="stopWorkerProcess" wire:loading.attr="disabled" class="secondary-button text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;font-weight:600;">
-                                <span>⏹ Stop Worker</span>
+                                <span>Hentikan Worker</span>
                             </button>
                         </div>
                     @endcan
@@ -154,10 +142,10 @@
                     @can('automation.run')
                         <div class="mt-4 flex items-center gap-2 pt-3 border-t border-slate-100">
                             <button type="button" wire:click="startQueueWorker" wire:loading.attr="disabled" class="secondary-button text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;font-weight:600;">
-                                <span>▶ Start Queue</span>
+                                <span>Jalankan Antrean</span>
                             </button>
                             <button type="button" wire:click="stopQueueWorker" wire:loading.attr="disabled" class="secondary-button text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;font-weight:600;">
-                                <span>⏹ Stop Queue</span>
+                                <span>Hentikan Antrean</span>
                             </button>
                         </div>
                     @endcan
@@ -179,10 +167,10 @@
                     @can('automation.run')
                         <div class="mt-4 flex items-center gap-2 pt-3 border-t border-slate-100">
                             <button type="button" wire:click="startCheckWorker" wire:loading.attr="disabled" class="secondary-button text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;font-weight:600;">
-                                <span>▶ Start Checker</span>
+                                <span>Jalankan Pemeriksa</span>
                             </button>
                             <button type="button" wire:click="stopCheckWorker" wire:loading.attr="disabled" class="secondary-button text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;font-weight:600;">
-                                <span>⏹ Stop Checker</span>
+                                <span>Hentikan Pemeriksa</span>
                             </button>
                         </div>
                     @endcan
@@ -193,8 +181,8 @@
         <section class="panel mt-6">
             <header class="panel-header">
                 <div>
-                    <h2 class="panel-title">Monitor rilisan</h2>
-                    <p class="panel-copy">Status setiap rilisan sejak ditemukan di Soundfresh sampai disimpan sebagai draft di SoundOn.</p>
+                    <span class="sr-only">Monitor rilisan</span><h2 class="panel-title panel-title--large">Antrian Rilisan</h2>
+                    <p class="panel-copy">Daftar rilisan dan status pengunggahan ke SoundOn.</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <span class="badge badge--brand">{{ $releaseCount }} rilisan diambil</span>

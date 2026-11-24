@@ -94,6 +94,22 @@ final class AutomaticApplicationUpdateTest extends TestCase
             ->assertSet('showPopup', false)->assertSet('updateAvailable', false);
     }
 
+    public function test_periodic_check_detects_a_new_release_and_hides_an_obsolete_popup(): void
+    {
+        Http::fakeSequence()
+            ->push(['tag_name' => 'v1.1.97', 'assets' => []])
+            ->push(['tag_name' => 'v1.1.98', 'assets' => []])
+            ->push(['tag_name' => 'v1.1.97', 'assets' => []]);
+
+        $screen = Livewire::test(ApplicationUpdate::class, ['popup' => true])
+            ->assertSeeHtml('wire:poll.60s="checkForUpdate(true)"')
+            ->call('checkForUpdate', true)->assertSet('showPopup', false);
+        Cache::forget('soundmatic-release:'.config('automation.update_repository'));
+        $screen->call('checkForUpdate', true)->assertSet('showPopup', true)->assertSet('latestVersion', '1.1.98');
+        Cache::forget('soundmatic-release:'.config('automation.update_repository'));
+        $screen->call('checkForUpdate', true)->assertSet('showPopup', false)->assertSet('updateAvailable', false);
+    }
+
     public function test_stale_installer_or_external_url_is_not_installable(): void
     {
         foreach ([['name' => 'SoundMatic-Setup-v1.1.90.exe'],
@@ -149,15 +165,15 @@ final class AutomaticApplicationUpdateTest extends TestCase
         Livewire::test(ApplicationUpdate::class)->set('installerUrl', 'https://example.com/untrusted.exe');
     }
 
-    public function test_success_receipt_shows_version_change_until_acknowledged(): void
+    public function test_success_receipt_does_not_open_popup_or_block_update_check(): void
     {
         file_put_contents($this->receiptPath, json_encode(['status' => 'installed', 'from' => '1.1.96', 'to' => '1.1.97']));
+        $this->fakeRelease();
         Livewire::test(ApplicationUpdate::class, ['popup' => true])
-            ->assertSet('showPopup', true)->assertSet('updatedFrom', '1.1.96')
-            ->assertSee('Sistem berhasil diperbarui')->assertSee('v1.1.96')->assertSee('v1.1.97')
-            ->call('checkForUpdate', true)->call('dismissPopup');
-        Livewire::test(ApplicationUpdate::class, ['popup' => true])->assertSet('showPopup', false);
-        Http::assertNothingSent();
+            ->assertSet('showPopup', false)->assertSet('updatedFrom', '1.1.96')
+            ->call('checkForUpdate', true)->assertSet('showPopup', true)
+            ->assertSee('v1.1.97')->assertSee('v1.1.98')->assertDontSee('v1.1.96');
+        Http::assertSentCount(1);
     }
 
     public function test_incomplete_or_wrong_version_receipts_do_not_claim_success(): void

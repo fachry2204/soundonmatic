@@ -8,6 +8,14 @@ use Tests\TestCase;
 
 class ValidateReleaseMetadataTest extends TestCase
 {
+    public function test_invalid_source_pre_release_date_does_not_block_release(): void
+    {
+        $metadata = $this->metadata(null, '01');
+        $metadata['pre_release_date'] = 'invalid source date';
+
+        $this->assertSame('invalid source date', app(ValidateReleaseMetadata::class)->handle($metadata)['pre_release_date']);
+    }
+
     public function test_short_isrc_placeholder_is_ignored_when_upc_is_empty(): void
     {
         $result = app(ValidateReleaseMetadata::class)->handle($this->metadata(null, '01'));
