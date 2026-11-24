@@ -407,7 +407,19 @@
                                         <details class="mt-2"><summary class="cursor-pointer">Detail teknis</summary><p class="mt-1 break-words">{{ $job->error_code }} — {{ $job->error_message }}</p></details>
                                     </div>
                                 @endif
-                                @if(in_array($jobStatus, ['failed','needs_attention','manual_auth_required'], true) && !str_starts_with((string) $job->error_code, 'DUPLICATE_'))
+                                @if($job->soundfresh_verify_status === 'rejecting')
+                                    <p class="mt-2 text-sm text-amber-800" role="status">Reject Soundfresh sedang diproses...</p>
+                                @elseif($job->soundfresh_verify_status === 'rejected')
+                                    <p class="mt-2 text-sm text-emerald-700" role="status">Sudah ditolak di Soundfresh</p>
+                                @elseif($job->soundfresh_verify_status === 'failed' && $job->soundfresh_verify_error)
+                                    <p class="mt-2 text-sm text-red-700">{{ $job->soundfresh_verify_error }}</p>
+                                @endif
+                                @if(\App\Services\Automation\FailedUploadRejection::eligible($job))
+                                    @can('automation.retry')
+                                        <button type="button" wire:click="openRejectFailedUpload('{{ $job->id }}')" wire:loading.attr="disabled" class="secondary-button failed-upload-reject-button mt-2" aria-label="Reject {{ $displayTitle }} di Soundfresh">Reject di Soundfresh</button>
+                                    @endcan
+                                @endif
+                                @if(in_array($jobStatus, ['failed','needs_attention','manual_auth_required'], true) && !in_array($job->soundfresh_verify_status, ['rejecting', 'rejected'], true) && !str_starts_with((string) $job->error_code, 'DUPLICATE_'))
                                     @can('automation.retry')
                                         <button type="button" wire:click="retryRelease('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="retryRelease('{{ $job->id }}')" class="secondary-button mt-2" aria-label="Retry proses {{ $displayTitle }}">
                                             <span wire:loading.remove wire:target="retryRelease('{{ $job->id }}')">Retry</span>
@@ -518,6 +530,25 @@
             <span>Semua proses berhenti pada tahap draft. Review Soundfresh hanya berjalan setelah referensi draft SoundOn tersedia.</span>
         </div>
 
+        @if($rejectingUploadJobId)
+            <dialog x-data x-init="$el.showModal()" x-on:cancel.prevent="$el.close(); $wire.cancelRejectFailedUpload()" wire:key="reject-failed-{{ $rejectingUploadJobId }}" aria-labelledby="reject-upload-title" aria-describedby="reject-upload-description" class="failed-upload-reject-dialog m-auto max-h-[90vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
+                <form wire:submit="rejectFailedUpload">
+                    <h2 id="reject-upload-title" class="text-lg font-bold">Reject rilisan di Soundfresh?</h2>
+                    <p class="mt-2 text-sm font-semibold">{{ \App\Models\ReleaseJob::find($rejectingUploadJobId)?->release_title }}</p>
+                    <p id="reject-upload-description" class="mt-2 text-sm leading-6 text-slate-600">Alasan diambil dari kegagalan upload. Periksa atau ubah sebelum mengirim. Aksi ini mengubah status di Soundfresh, tidak menghapus draft SoundOn.</p>
+                    <label for="upload-reject-reason" class="mt-4 block text-sm font-semibold">Alasan penolakan</label>
+                    <textarea id="upload-reject-reason" wire:model="uploadRejectReason" rows="5" maxlength="3000" required autofocus class="mt-2 w-full rounded-lg border border-slate-300 p-3 text-base focus:outline-2 focus:outline-red-700" aria-describedby="upload-reject-error"></textarea>
+                    <div id="upload-reject-error" class="mt-1 text-sm text-red-700" role="alert">@error('uploadRejectReason') {{ $message }} @enderror</div>
+                    <div class="mt-5 flex flex-wrap justify-end gap-3">
+                        <button type="button" x-on:click="$el.closest('dialog').close()" wire:click="cancelRejectFailedUpload" wire:loading.attr="disabled" class="secondary-button min-h-11">Batal</button>
+                        <button type="submit" wire:loading.attr="disabled" wire:target="rejectFailedUpload" class="secondary-button failed-upload-reject-confirm">
+                            <span wire:loading.remove wire:target="rejectFailedUpload">Konfirmasi Reject di Soundfresh</span>
+                            <span wire:loading wire:target="rejectFailedUpload">Mengantrekan Reject...</span>
+                        </button>
+                    </div>
+                </form>
+            </dialog>
+        @endif
         @if($showWorkerOperationModal)
             <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="worker-operation-title" wire:click.self="closeWorkerOperationModal">
                 <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">

@@ -64,6 +64,14 @@ internal static class Program
             var target = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "SoundMatic");
             var temp = Path.Combine(Path.GetTempPath(), "SoundMaticSetup-" + Guid.NewGuid().ToString("N"));
             var isNewInstallation = !File.Exists(Path.Combine(target, ".env"));
+            var previousVersion = isNewInstallation ? "" : ReadEnvironmentValue(File.ReadAllText(Path.Combine(target, ".env")), "SOUNDMATIC_APP_VERSION");
+            var previousExecutable = Path.Combine(target, "SoundMatic.exe");
+            if (File.Exists(previousExecutable))
+            {
+                var previousFileVersion = FileVersionInfo.GetVersionInfo(previousExecutable).FileVersion;
+                if (Version.TryParse(previousFileVersion, out var actualPreviousVersion))
+                    previousVersion = actualPreviousVersion.ToString(3);
+            }
             try
             {
                 Log("Instalasi dimulai. Mode otomatis: " + silentUpdate);
@@ -85,6 +93,21 @@ internal static class Program
                 await Run(Path.Combine(target, "runtime", "php", "php.exe"), "artisan soundonmatic:bootstrap", target);
                 CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SoundMatic.lnk"), Path.Combine(target, "SoundMatic.exe"), target);
                 CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "SoundMatic.lnk"), Path.Combine(target, "SoundMatic.exe"), target);
+                // Only a successful extraction, migration and bootstrap may produce
+                // this receipt. Downloading an installer is not a completed update.
+                var installedVersion = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "";
+                if (Version.TryParse(previousVersion, out var oldVersion)
+                    && Version.TryParse(installedVersion, out var newVersion) && newVersion > oldVersion)
+                {
+                    var receiptDirectory = Path.Combine(target, "storage", "app", "updates");
+                    Directory.CreateDirectory(receiptDirectory);
+                    var receipt = Path.Combine(receiptDirectory, "update-completed.json");
+                    File.WriteAllText(receipt + ".tmp", System.Text.Json.JsonSerializer.Serialize(new {
+                        status = "installed", from = previousVersion, to = installedVersion,
+                        completed_at = DateTimeOffset.UtcNow.ToString("O")
+                    }));
+                    File.Move(receipt + ".tmp", receipt, overwrite: true);
+                }
                 status.Text = silentUpdate ? "Update selesai." : "Instalasi selesai."; progress.Visible = false;
                 Log(status.Text);
                 if (silentUpdate || MessageBox.Show("SoundMatic berhasil diinstal. Buka sekarang?", "Selesai", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)

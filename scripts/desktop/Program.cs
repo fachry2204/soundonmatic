@@ -181,6 +181,14 @@ internal static class Program
                 || !File.Exists(fullPath))
                 throw new InvalidOperationException("Installer update tidak valid atau tidak ditemukan.");
 
+            var installerVersion = FileVersionInfo.GetVersionInfo(fullPath).FileVersion;
+            var nameVersion = Path.GetFileNameWithoutExtension(fullPath)["SoundMatic-Setup-v".Length..];
+            if (!Version.TryParse(installerVersion, out var fileVersion)
+                || !Version.TryParse(nameVersion, out var expectedVersion)
+                || fileVersion.Major != expectedVersion.Major || fileVersion.Minor != expectedVersion.Minor
+                || fileVersion.Build != expectedVersion.Build)
+                throw new InvalidOperationException("Versi isi installer tidak sesuai dengan versi pembaruan. Coba cek update kembali.");
+
             var installer = new ProcessStartInfo(fullPath)
             {
                 WorkingDirectory = Path.GetDirectoryName(fullPath)!,

@@ -53,6 +53,10 @@ final class ProcessReleaseJob implements ShouldQueue
     public function handle(PlaywrightClient $worker, PrepareReleaseAssets $prepareAssets, CleanupTemporaryAssets $cleanupAssets, SessionManager $sessions, SoundOnMetadataMapper $mapper, MetadataFieldSynchronizer $fieldSynchronizer, ValidateReleaseMetadata $validator, AutomationErrorClassifier $classifier, AttentionNotifier $notifier): void
     {
         $job = Release::with('automationRun')->findOrFail($this->releaseJobId);
+        if (in_array($job->soundfresh_verify_status, ['rejecting', 'rejected'], true)
+            || $job->soundfresh_workflow_status === 'rejected') {
+            return;
+        }
         // Retries and operator re-dispatches can leave an older queue message
         // behind. Never re-run a terminal release or increment completion twice.
         if (in_array($job->status, [ReleaseJobStatus::Completed, ReleaseJobStatus::Skipped], true)) {

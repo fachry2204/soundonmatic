@@ -16,6 +16,8 @@ use App\Enums\ReleaseJobStatus;
 use App\Exceptions\CredentialsNotConfiguredException;
 use App\Jobs\ProcessReleaseJob;
 use App\Jobs\ReviewManuallyVerifiedDraft;
+use App\Jobs\RejectSoundfreshRelease;
+use App\Services\Automation\FailedUploadRejection;
 use App\Models\AutomationAccount;
 use App\Models\AutomationRun;
 use App\Models\ReleaseJob;
@@ -48,6 +50,55 @@ final class Dashboard extends Component
     public string $workerOperationTitle = '';
 
     public string $workerOperationMessage = '';
+
+    #[\Livewire\Attributes\Locked]
+    public ?string $rejectingUploadJobId = null;
+
+    #[\Livewire\Attributes\Locked]
+    public ?string $rejectFailureFingerprint = null;
+
+    public string $uploadRejectReason = '';
+
+    public function openRejectFailedUpload(string $jobId): void
+    {
+        Gate::authorize('automation.retry');
+        $job = ReleaseJob::findOrFail($jobId);
+        abort_unless(FailedUploadRejection::eligible($job), 409, 'Rilisan tidak tersedia untuk Reject.');
+        $this->rejectingUploadJobId = $job->id;
+        $this->rejectFailureFingerprint = FailedUploadRejection::fingerprint($job);
+        $this->uploadRejectReason = FailedUploadRejection::reason($job);
+        $this->resetValidation('uploadRejectReason');
+    }
+
+    public function cancelRejectFailedUpload(): void
+    {
+        $this->rejectingUploadJobId = null;
+        $this->rejectFailureFingerprint = null;
+        $this->uploadRejectReason = '';
+        $this->resetValidation('uploadRejectReason');
+    }
+
+    public function rejectFailedUpload(): void
+    {
+        Gate::authorize('automation.retry');
+        $this->uploadRejectReason = trim($this->uploadRejectReason);
+        $this->validate(['uploadRejectReason' => ['required', 'string', 'max:3000']]);
+        abort_unless($this->rejectingUploadJobId, 422);
+        $job = DB::transaction(function (): ReleaseJob {
+            $job = ReleaseJob::query()->lockForUpdate()->findOrFail($this->rejectingUploadJobId);
+            abort_unless(FailedUploadRejection::eligible($job)
+                && hash_equals(FailedUploadRejection::fingerprint($job), (string) $this->rejectFailureFingerprint), 409,
+                'Kondisi rilisan sudah berubah. Periksa ulang sebelum Reject.');
+            $job->update(['soundfresh_verify_status' => 'rejecting', 'soundfresh_verify_error' => null]);
+
+            return $job;
+        }, 5);
+        RejectSoundfreshRelease::dispatch($job->id, $this->uploadRejectReason, true, $this->rejectFailureFingerprint);
+        app(OperatorAudit::class)->record('failed_upload_reject_requested', 'Operator confirmed rejection of a failed upload.',
+            $job->automation_run_id, $job->id, ['reason' => $this->uploadRejectReason, 'failure_code' => $job->error_code]);
+        $this->uploadMessage = 'Reject '.$job->release_title.' telah diantrikan. Status diperbarui setelah Soundfresh mengonfirmasi.';
+        $this->cancelRejectFailedUpload();
+    }
 
     public function refreshMonitor(): void
     {
@@ -381,6 +432,7 @@ final class Dashboard extends Component
         $this->uploadMessage = null;
 
         $job = ReleaseJob::with('automationRun')->findOrFail($jobId);
+        abort_if(in_array($job->soundfresh_verify_status, ['rejecting', 'rejected'], true), 409, 'Rilisan sedang atau sudah ditolak di Soundfresh.');
         abort_if(str_starts_with((string) $job->error_code, 'DUPLICATE_'), 409, 'Pemeriksaan duplikat harus diselesaikan sebelum rilisan dapat diproses.');
         abort_unless(in_array($job->status, [
             ReleaseJobStatus::Failed,

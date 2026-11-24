@@ -27,6 +27,7 @@ final class RunDetail extends Component
     {
         Gate::authorize('automation.retry');
         $job = ReleaseJob::where('automation_run_id', $this->run->id)->findOrFail($jobId);
+        abort_if(in_array($job->soundfresh_verify_status, ['rejecting', 'rejected'], true), 409, 'Rilisan sedang atau sudah ditolak di Soundfresh.');
         abort_unless(in_array($job->status, [ReleaseJobStatus::Failed, ReleaseJobStatus::NeedsAttention], true), 409);
         $job->update(['status' => ReleaseJobStatus::Queued, 'error_code' => null, 'error_message' => null, 'finished_at' => null]);
         $this->run->update(['status' => AutomationRunStatus::Running, 'stop_requested_at' => null, 'finished_at' => null]);

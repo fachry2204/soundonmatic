@@ -21,6 +21,7 @@
     --success: #15966b;
     --warning: #d48718;
     --danger: #dc4a5a;
+    --danger-action: #b91c1c;
 }
 
 body {
@@ -29,6 +30,15 @@ body {
         #f6f8fb;
 }
 
+.system-update-dialog button { min-height: 44px; }
+.system-update-dialog button:focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
+.system-update-dialog button:disabled { opacity: .55; cursor: wait; }
+.secondary-button.failed-upload-reject-button { min-height: 44px; color: var(--danger-action); border-color: var(--danger-action); }
+.secondary-button.failed-upload-reject-button:hover { color: var(--danger-action); background: #fff0f2; border-color: var(--danger-action); }
+.failed-upload-reject-dialog .secondary-button { min-height: 44px; font-size: 14px; }
+.secondary-button.failed-upload-reject-confirm, .secondary-button.failed-upload-reject-confirm:hover { min-height: 44px; border-color: var(--danger-action); background: var(--danger-action); color: white; }
+.failed-upload-reject-dialog button:focus-visible { outline: 3px solid var(--danger-action); outline-offset: 2px; }
+.failed-upload-reject-dialog button:disabled { opacity: .55; cursor: wait; }
 button, a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(91, 92, 226, .25); outline-offset: 2px; }
 

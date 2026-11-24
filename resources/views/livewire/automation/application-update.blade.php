@@ -1,17 +1,46 @@
-<div>
+<div wire:init="checkForUpdate(true)">
+    @if($popup)
+        @if($showPopup)
+            <dialog x-data x-init="$el.showModal()" x-on:cancel.prevent="if (!$el.querySelector('[data-update-dismiss]').disabled) { $el.close(); $wire.dismissPopup() }" aria-labelledby="system-update-title" aria-describedby="system-update-description" class="system-update-dialog m-auto max-h-[90vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
+                <span class="badge badge--success">{{ $updatedFrom ? 'Pembaruan berhasil' : 'Update tersedia' }}</span>
+                <h2 id="system-update-title" class="mt-4 text-xl font-bold">{{ $updatedFrom ? 'Sistem berhasil diperbarui' : 'Sistem versi terbaru tersedia' }}</h2>
+                <p class="my-4 text-2xl font-bold">v{{ $updatedFrom ?: $currentVersion }} <span aria-label="ke">→</span> v{{ $updatedFrom ? $currentVersion : $latestVersion }}</p>
+                <p id="system-update-description" class="text-sm leading-6 text-slate-600">{{ $updatedFrom ? 'Pembaruan telah selesai dipasang. Anda sekarang menggunakan versi baru SoundMatic.' : 'Klik Update Sistem. Pembaruan diunduh dan dipasang otomatis, lalu aplikasi dibuka kembali. Tidak perlu mengunduh atau menjalankan EXE secara manual. Data dan sesi login tetap dipertahankan.' }}</p>
+                @if(!$updatedFrom)
+                    <p class="mt-3 text-sm leading-6 text-slate-600">Selesaikan upload dan pemeriksaan rilisan sebelum memperbarui aplikasi.</p>
+                @endif
+                @if($message && !$updatedFrom)
+                    <p class="mt-4 rounded-lg bg-slate-100 p-3 text-sm leading-6" role="status">{{ $message }}</p>
+                @endif
+                <p wire:loading wire:target="downloadAndInstall" class="mt-4 text-sm leading-6" role="status">Mengunduh dan memverifikasi pembaruan. Jangan tutup aplikasi...</p>
+                <div class="mt-6 flex flex-wrap justify-end gap-3">
+                    <button type="button" data-update-dismiss wire:click="dismissPopup" wire:loading.attr="disabled" @disabled($installStarted) class="secondary-button">{{ $updatedFrom ? 'Mulai gunakan versi baru' : 'Nanti' }}</button>
+                    @if(!$updatedFrom)
+                        <button type="button" wire:click="downloadAndInstall" wire:loading.attr="disabled" @disabled(!$installerUrl || $installStarted) class="primary-button" autofocus>
+                            <span wire:loading.remove wire:target="downloadAndInstall">Update Sistem</span>
+                            <span wire:loading wire:target="downloadAndInstall">Menyiapkan update...</span>
+                        </button>
+                    @endif
+                </div>
+            </dialog>
+        @endif
+    @else
     <x-automation-nav />
     <main class="page-shell">
         <section class="page-heading">
             <div>
                 <div class="eyebrow">Application maintenance</div>
                 <h1 class="page-title">Update Aplikasi</h1>
-                <p class="page-subtitle">Cek GitHub Release terbaru, download installer, lalu jalankan pembaruan SoundMatic.</p>
+                <p class="page-subtitle">Perbarui SoundMatic langsung dari aplikasi tanpa mengunduh dan menjalankan EXE secara manual.</p>
             </div>
             <span class="badge badge--brand">Versi {{ $currentVersion }}</span>
         </section>
 
         @if ($message)
             <div class="info-banner mb-6" role="status"><strong>Status update</strong><span>{{ $message }}</span></div>
+        @endif
+        @if($updatedFrom)
+            <div class="info-banner mb-6" role="status"><strong>Sistem berhasil diperbarui</strong><span>v{{ $updatedFrom }} → v{{ $currentVersion }}. Pembaruan telah selesai dipasang.</span></div>
         @endif
 
         <article class="panel overflow-hidden">
@@ -42,8 +71,8 @@
                     <span wire:loading.remove wire:target="checkForUpdate">Cek Update</span>
                     <span wire:loading wire:target="checkForUpdate">Mengecek GitHub...</span>
                 </button>
-                <button type="button" wire:click="downloadAndInstall" wire:confirm="Download dan jalankan installer update SoundMatic sekarang? Setelah download selesai, aplikasi otomatis ditutup dan installer dijalankan." wire:loading.attr="disabled" wire:target="downloadAndInstall" @disabled(! $updateAvailable || ! $installerUrl) class="primary-button">
-                    <span wire:loading.remove wire:target="downloadAndInstall">Download &amp; Install Update</span>
+                <button type="button" wire:click="downloadAndInstall" wire:confirm="Perbarui sistem sekarang? Pembaruan diunduh dan dipasang otomatis, lalu aplikasi dibuka kembali. Selesaikan proses rilisan terlebih dahulu." wire:loading.attr="disabled" wire:target="downloadAndInstall" @disabled(! $updateAvailable || ! $installerUrl || $installStarted) class="primary-button">
+                    <span wire:loading.remove wire:target="downloadAndInstall">Update Sistem</span>
                     <span wire:loading wire:target="downloadAndInstall">Download update...</span>
                 </button>
                 @if($releaseUrl)<a href="{{ $releaseUrl }}" target="_blank" rel="noopener noreferrer" class="text-xs font-semibold text-indigo-600">Lihat GitHub Release ↗</a>@endif
@@ -64,6 +93,7 @@
 
         <div class="info-banner mt-6"><strong>Syarat update</strong><span>GitHub Release harus memakai tag versi seperti v1.1.41 dan memiliki asset installer bernama SoundMatic-Setup-v1.1.41.exe.</span></div>
     </main>
+    @endif
 
     @script
     <script>

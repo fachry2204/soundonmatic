@@ -57,3 +57,12 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# Pembaruan SoundMatic dari aplikasi
+
+Setelah login dengan akun yang memiliki izin pengelolaan sesi, aplikasi mengecek GitHub Release otomatis. Jika ada versi baru, popup menampilkan versi terpasang → versi tersedia, tombol **Update Sistem**, dan **Nanti**. Pemeriksaan otomatis memakai cache maksimal lima menit; menu Update bisa dipakai untuk mengecek langsung.
+
+Tombol Update Sistem mengunduh pembaruan di belakang layar, memverifikasi checksum GitHub jika tersedia, lalu meminta desktop memasang pembaruan dan membuka kembali aplikasi. Pengguna tidak perlu mengunduh atau menjalankan EXE secara manual. Upload, antrean dan pemeriksaan rilisan yang masih aktif harus diselesaikan atau dihentikan terlebih dahulu.
+
+Notifikasi **Sistem berhasil diperbarui**, beserta versi lama → versi baru, hanya muncul setelah installer menyelesaikan ekstraksi, migrasi dan bootstrap. Mengunduh file saja tidak dianggap berhasil memperbarui aplikasi. Installer mempertahankan konfigurasi, data aplikasi dan sesi yang sudah ada.
+
+Fitur popup harus terlebih dahulu terpasang melalui versi aplikasi yang memuat perubahan ini. Versi lama yang belum memiliki fitur tersebut tidak dapat menampilkan popup secara retroaktif; gunakan menu Update yang sudah tersedia untuk pemasangan pertama. Setiap versi baru tetap harus dipublikasikan ke GitHub Release dengan aset `SoundMatic-Setup-vX.Y.Z.exe` yang sesuai tag dan isi versi installer.

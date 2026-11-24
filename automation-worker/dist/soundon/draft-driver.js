@@ -2113,11 +2113,9 @@ async function setSearchFieldValue(page, label, value, optional = false, entityR
                             }
                             throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:${label}:${value}:submit_disabled:${dialogMessage}`);
                         }
-                        await clickEntityControl(submitButton);
-                        let savedAfterSubmit = await waitForEntitySave(page, dialog, label, value, entitySaveTimeout);
+                        let savedAfterSubmit = await submitEntityAndVerify(page, dialog, submitButton, label, value, entitySaveTimeout);
                         if (!savedAfterSubmit && contributorRole && await retryMissingContributorName(page, dialog, value)) {
-                            await clickEntityControl(submitButton);
-                            savedAfterSubmit = await waitForEntitySave(page, dialog, label, value, entitySaveTimeout);
+                            savedAfterSubmit = await submitEntityAndVerify(page, dialog, submitButton, label, value, entitySaveTimeout);
                         }
                         if (!savedAfterSubmit) {
                             // Capture the actual failing form before Cancel
@@ -2338,6 +2336,33 @@ async function ensureDialogEntityName(dialog, value, contributorRole) {
     if (!sameEntityName(persisted, value)) {
         throw new Error(`SOUNDON_ENTITY_MATCH_REQUIRED:dialog_name:${value}:actual=${persisted}`);
     }
+}
+export async function submitEntityAndVerify(page, dialog, submit, label, value, timeout = entitySaveTimeout) {
+    // Submit is not an ordinary idempotent control. A click may reach SoundOn
+    // even if Playwright reports a timeout while the editor is being removed.
+    // Never retry it blindly or resolve Submit in a newly opened editor.
+    let interactionError;
+    if (await dialog.isVisible().catch(() => false)) {
+        try {
+            await submit.scrollIntoViewIfNeeded({ timeout: 3000 });
+            await submit.click({ timeout: 8000 });
+        }
+        catch (error) {
+            interactionError = error;
+            if (page.isClosed())
+                throw error;
+        }
+    }
+    if (await waitForEntitySave(page, dialog, label, value, timeout))
+        return true;
+    if (!await dialog.isVisible().catch(() => false)) {
+        throw new Error(`SOUNDON_CONTRIBUTOR_NOT_PERSISTED:${label}:${value}:stage=editor_closed_without_saved_card`);
+    }
+    if (interactionError) {
+        console.warn(JSON.stringify({ event: 'metadata_submit_interaction_unconfirmed', field: label,
+            value, error: interactionError instanceof Error ? interactionError.message : String(interactionError) }));
+    }
+    return false;
 }
 async function waitForEntitySave(page, dialog, label, value, timeout) {
     const deadline = Date.now() + timeout;
