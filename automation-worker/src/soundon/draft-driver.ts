@@ -1490,17 +1490,7 @@ export async function setTikTokPreRelease(
         card = card.locator("..");
     }
     if (!preReleaseDate) {
-        const skip = card
-            .getByText(/Skip for now/i)
-            .filter({ visible: true })
-            .first();
-        if (!(await skip.count()))
-            throw new Error("SOUNDON_UI_CHANGED:tiktok_skip_for_now");
-        const skipRadio = skip.locator("xpath=ancestor::label[1]//input[@type='radio']");
-        if (!(await skipRadio.count()) || !(await skipRadio.first().isChecked()))
-            await skip.click({ force: true });
-        if ((await skipRadio.count()) && !(await skipRadio.first().isChecked()))
-            throw new Error("SOUNDON_TIKTOK_PRE_RELEASE_NOT_SKIPPED");
+        await selectTikTokSkipForNow(card);
         return;
     }
     const turnOn = card
@@ -1550,12 +1540,61 @@ export async function setTikTokPreRelease(
             activeCard = activeCard.locator("..");
         }
         await setScopedInput(activeCard, "Pre-release date", preReleaseDate);
+        if (await skipTooSoonTikTokPreRelease(page)) return;
         await setScopedTime(activeCard, "Pre-release time");
         await assertScopedPreReleasePersisted(activeCard, preReleaseDate);
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(`PRE_RELEASE_INVALID:TikTok:${preReleaseDate}:${detail}`);
     }
+}
+
+async function selectTikTokSkipForNow(card: Locator): Promise<void> {
+    const skip = card
+        .getByText(/Skip for now/i)
+        .filter({ visible: true })
+        .first();
+    if (!(await skip.count()))
+        throw new Error("SOUNDON_UI_CHANGED:tiktok_skip_for_now");
+    const skipRadio = skip.locator("xpath=ancestor::label[1]//input[@type='radio']").first();
+    if (!(await skipRadio.count()) || !(await skipRadio.isChecked().catch(() => false))) {
+        if (await skipRadio.count())
+            await skipRadio.check({ force: true }).catch(() => skip.click({ force: true }));
+        else
+            await skip.click({ force: true });
+    }
+    if ((await skipRadio.count()) && !(await skipRadio.isChecked().catch(() => false)))
+        throw new Error("SOUNDON_TIKTOK_PRE_RELEASE_NOT_SKIPPED");
+}
+
+async function skipTooSoonTikTokPreRelease(page: Page): Promise<boolean> {
+    const warning = page
+        .getByText(/^Pre-Release Date Too Soon$/i, { exact: true })
+        .filter({ visible: true })
+        .last();
+    const appeared = await warning.waitFor({ state: "visible", timeout: 1_500 })
+        .then(() => true).catch(() => false);
+    if (!appeared) return false;
+
+    const dialog = page.getByRole("dialog")
+        .filter({ hasText: /Pre-Release Date Too Soon/i })
+        .last();
+    const changeDate = dialog.getByRole("button", { name: /^Yes$/i })
+        .filter({ visible: true }).last();
+    if (!(await changeDate.count()))
+        throw new Error("SOUNDON_UI_CHANGED:pre_release_too_soon_dialog");
+    await clickEntityControl(changeDate);
+    await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+
+    const heading = page.getByText("TikTok pre-release", { exact: true })
+        .filter({ visible: true }).first();
+    let card = heading.locator("..");
+    for (let depth = 0; depth < 7; depth++) {
+        if (await card.getByText(/Skip for now/i).filter({ visible: true }).count()) break;
+        card = card.locator("..");
+    }
+    await selectTikTokSkipForNow(card);
+    return true;
 }
 
 async function closeOpenDatePicker(page: Page): Promise<void> {
@@ -1719,8 +1758,19 @@ async function setScopedInput(
     if (!(await fieldLabel.count()))
         throw new Error(`SOUNDON_UI_CHANGED:field:${label}`);
     if (/date/i.test(label)) {
-        const dateInput = await closestInputBelowLabel(scope, fieldLabel);
+        // Prefer structural ownership to geometry: an off-screen label and a
+        // responsive date/time layout can otherwise select the time input.
+        const siblingInput = fieldLabel.locator(
+            "xpath=following-sibling::*[1]//input[not(@type='hidden') and not(@type='radio') and not(@type='checkbox')]",
+        ).filter({ visible: true });
+        const dateInput = (await siblingInput.count()) === 1
+            ? siblingInput.first()
+            : await closestInputBelowLabel(scope, fieldLabel);
         if ((await dateInput.count()) && await selectCalendarDate(dateInput, value)) return;
+        // A readonly calendar must commit through Semi, not by removing
+        // readonly and changing the DOM while Formik still holds an empty date.
+        if ((await dateInput.count()) && await dateInput.evaluate(el => (el as HTMLInputElement).readOnly))
+            throw new Error(`SOUNDON_FIELD_NOT_PERSISTED:${label}:${value}`);
     }
     let container = fieldLabel.locator("..");
     for (let depth = 0; depth < 5; depth++) {
@@ -1742,6 +1792,8 @@ async function setScopedInput(
             if (/date/i.test(label) && await selectCalendarDate(input, value)) {
                 return;
             }
+            if (/date/i.test(label) && await input.evaluate(el => (el as HTMLInputElement).readOnly))
+                throw new Error(`SOUNDON_FIELD_NOT_PERSISTED:${label}:${value}`);
             await fillControlledInput(input, value);
             await scope.page().waitForTimeout(700);
             const persisted = await input.inputValue();
@@ -1786,8 +1838,19 @@ export async function selectCalendarDate(input: Locator, isoDate: string): Promi
     const targetYear = Number(match[1]);
     const targetMonth = Number(match[2]);
     const targetDay = Number(match[3]);
-    await clickEntityControl(input);
     const page = input.page();
+    // Semi's readonly input can have pointer-events:none. Playwright then
+    // retries clicking it forever because its own wrapper receives the hit.
+    // Click the owning trigger with real pointer events; never force-click the
+    // input or synthesize its value. Limit the wrapper to this single field so
+    // range pickers/adjacent track controls cannot be activated accidentally.
+    const wrapper = input.locator(
+        "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' semi-datepicker-input ') or contains(concat(' ', normalize-space(@class), ' '), ' semi-input-wrapper ')][1]",
+    );
+    const trigger = (await wrapper.count()) &&
+        (await wrapper.locator('input:not([type="hidden"])').count()) === 1
+        ? wrapper : input;
+    await clickEntityControl(trigger);
     const picker = page.locator(".semi-datepicker:visible").last();
     const opened = await picker
         .waitFor({ state: "visible", timeout: 5_000 })
@@ -3153,10 +3216,12 @@ export function resolveSoundOnPreReleaseDate(
         Number.isNaN(today.getTime())
     ) return "";
 
-    // A pre-release is normally earlier than the planned release. Preserve
-    // Soundfresh's date for both TikTok and YouTube; reject only an impossible
-    // date after the planned release.
+    // SoundOn recommends at least seven full days between TikTok pre-release
+    // and the official release. A closer date opens a blocking warning; skip
+    // this optional feature instead of failing the entire draft.
     if (preRelease > release) return "";
+    const daysBeforeRelease = (release.getTime() - preRelease.getTime()) / 86_400_000;
+    if (daysBeforeRelease < 7) return "";
 
     // Also keep optional pre-release disabled for elapsed dates. This guards
     // malformed/source values without blocking the main draft creation.

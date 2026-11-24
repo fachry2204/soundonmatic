@@ -185,12 +185,12 @@ describe("resolveSoundOnPreReleaseDate", () => {
         )).toBe("2026-09-01");
     });
 
-    it("keeps a pre-release date close to release", () => {
+    it("omits a pre-release date less than seven days before release", () => {
         expect(resolveSoundOnPreReleaseDate(
             "September 10, 2026",
             "September 15, 2026",
             "August 16, 2026",
-        )).toBe("2026-09-10");
+        )).toBe("");
     });
 
     it("omits an elapsed pre-release date", () => {
@@ -209,12 +209,12 @@ describe("resolveSoundOnPreReleaseDate", () => {
         )).toBe("");
     });
 
-    it("keeps a future pre-release date equal to the release date", () => {
+    it("omits a future pre-release date equal to the release date", () => {
         expect(resolveSoundOnPreReleaseDate(
             "September 15, 2026",
             "September 15, 2026",
             "August 16, 2026",
-        )).toBe("2026-09-15");
+        )).toBe("");
     });
 });
 
