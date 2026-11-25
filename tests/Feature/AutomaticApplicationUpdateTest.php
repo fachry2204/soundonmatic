@@ -6,6 +6,9 @@ namespace Tests\Feature;
 
 use App\Livewire\Automation\ApplicationUpdate;
 use App\Models\AutomationRun;
+use App\Models\ReleaseJob;
+use App\Actions\Automation\StopAutomationForUpdate;
+use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use Database\Seeders\AccessControlSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -121,13 +124,76 @@ final class AutomaticApplicationUpdateTest extends TestCase
         }
     }
 
-    public function test_active_work_defers_update_without_downloading(): void
+    public function test_update_stops_active_work_and_downloads_without_manual_intervention(): void
     {
         $this->fakeRelease();
-        AutomationRun::query()->create(['status' => 'running']);
+        $run = AutomationRun::query()->create(['status' => 'running']);
+        $job = ReleaseJob::create([
+            'automation_run_id' => $run->id, 'soundfresh_release_id' => 'update-active',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/update-active',
+            'idempotency_key' => 'update-active', 'status' => 'running',
+            'soundon_check_status' => 'checking', 'soundfresh_verify_status' => 'sending',
+        ]);
+        $completed = ReleaseJob::create([
+            'automation_run_id' => $run->id, 'soundfresh_release_id' => 'update-completed',
+            'soundfresh_release_url' => 'https://cms.soundfresh.id/admin/releases/update-completed',
+            'idempotency_key' => 'update-completed', 'status' => 'completed',
+            'soundon_draft_id' => 'draft-preserved',
+        ]);
+        foreach (['release-automation', 'status-checks', 'unrelated'] as $queue) {
+            DB::table('jobs')->insert(['queue' => $queue, 'payload' => '{}', 'attempts' => 0,
+                'available_at' => time(), 'created_at' => time()]);
+        }
         Livewire::test(ApplicationUpdate::class)->call('downloadAndInstall')
-            ->assertSee('Update ditunda')->assertNotDispatched('soundmatic-update-ready');
+            ->assertSee('berhasil didownload')->assertDontSee('Update ditunda');
+        $this->assertSame('stopped', $run->fresh()->status->value);
+        $this->assertNotNull($run->fresh()->stop_requested_at);
+        $this->assertSame('stopped', $job->fresh()->status->value);
+        $this->assertSame('stopped', $job->fresh()->soundon_check_status);
+        $this->assertSame('failed', $job->fresh()->soundfresh_verify_status);
+        $this->assertSame('completed', $completed->fresh()->status->value);
+        $this->assertSame('draft-preserved', $completed->fresh()->soundon_draft_id);
+        $this->assertSame(['unrelated'], DB::table('jobs')->pluck('queue')->all());
+        Http::assertSentCount(2);
+    }
+
+    public function test_work_started_during_download_is_stopped_before_installer_handoff(): void
+    {
+        $lateRun = null;
+        Http::fake(function ($request) use (&$lateRun) {
+            if (str_contains($request->url(), 'api.github.com')) {
+                return Http::response(['tag_name' => 'v1.1.98', 'assets' => [[
+                    'name' => 'SoundMatic-Setup-v1.1.98.exe',
+                    'browser_download_url' => 'https://github.com/fachry2204/soundonmatic/releases/download/v1.1.98/SoundMatic-Setup-v1.1.98.exe',
+                ]]]);
+            }
+            $lateRun = AutomationRun::create(['status' => 'queued']);
+            return Http::response('installer-binary');
+        });
+        Livewire::test(ApplicationUpdate::class)->call('downloadAndInstall')->assertSee('berhasil didownload');
+        $this->assertNotNull($lateRun);
+        $this->assertSame('stopped', $lateRun->fresh()->status->value);
+        $this->assertNotNull($lateRun->fresh()->stop_requested_at);
+    }
+
+    public function test_update_does_not_download_when_workers_cannot_be_stopped(): void
+    {
+        $this->fakeRelease();
+        $this->mock(StopAutomationForUpdate::class)->shouldReceive('handle')->once()
+            ->andThrow(new \RuntimeException('Worker masih aktif.'));
+        Livewire::test(ApplicationUpdate::class)->call('downloadAndInstall')
+            ->assertSee('worker gagal dihentikan')->assertSet('installStarted', false)
+            ->assertNotDispatched('soundmatic-update-ready');
         Http::assertSentCount(1);
+    }
+
+    public function test_checking_for_updates_does_not_stop_workers(): void
+    {
+        $this->fakeRelease();
+        $run = AutomationRun::create(['status' => 'running']);
+        $this->mock(StopAutomationForUpdate::class)->shouldNotReceive('handle');
+        Livewire::test(ApplicationUpdate::class)->call('checkForUpdate')->assertSet('updateAvailable', true);
+        $this->assertSame('running', $run->fresh()->status->value);
     }
 
     public function test_bad_checksum_does_not_launch_or_mark_success(): void

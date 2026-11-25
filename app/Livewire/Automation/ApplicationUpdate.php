@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\Automation;
 
-use App\Models\AutomationRun;
-use App\Models\ReleaseJob;
+use App\Actions\Automation\StopAutomationForUpdate;
+use App\Services\Automation\LocalSystemManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
@@ -161,12 +161,6 @@ final class ApplicationUpdate extends Component
             return;
         }
 
-        if ($this->hasActiveWork()) {
-            $this->message = 'Update ditunda: masih ada upload, antrean, atau pemeriksaan rilisan aktif. Selesaikan atau hentikan proses tersebut, lalu klik Update Sistem kembali.';
-
-            return;
-        }
-
         $lock = null;
         $temporaryPath = null;
         try {
@@ -180,6 +174,9 @@ final class ApplicationUpdate extends Component
             $lock = fopen($directory.DIRECTORY_SEPARATOR.'download.lock', 'c');
             if ($lock === false || ! flock($lock, LOCK_EX | LOCK_NB)) {
                 throw new \RuntimeException('Update sedang diunduh di jendela lain.');
+            }
+            if (! $this->stopWorkersForUpdate()) {
+                return;
             }
             $path = $directory.DIRECTORY_SEPARATOR.basename($this->installerName);
             $temporaryPath = $path.'.part';
@@ -214,9 +211,8 @@ final class ApplicationUpdate extends Component
             }
         }
 
-        if ($this->hasActiveWork()) {
-            $this->message = 'Update siap, tetapi proses rilisan baru sedang aktif. Selesaikan proses tersebut sebelum memperbarui aplikasi.';
-
+        // Another window may have started work during a long download.
+        if (! $this->stopWorkersForUpdate()) {
             return;
         }
 
@@ -288,13 +284,17 @@ final class ApplicationUpdate extends Component
         }
     }
 
-    private function hasActiveWork(): bool
+    private function stopWorkersForUpdate(): bool
     {
-        return AutomationRun::query()->whereIn('status', ['queued', 'running'])->exists()
-            || ReleaseJob::query()->where(function ($query) {
-                $query->whereIn('status', ['queued', 'running'])
-                    ->orWhereIn('soundon_check_status', ['queued', 'checking'])
-                    ->orWhereIn('soundfresh_verify_status', ['sending', 'rejecting']);
-            })->exists();
+        try {
+            app(StopAutomationForUpdate::class)->handle(app(LocalSystemManager::class));
+
+            return true;
+        } catch (Throwable $error) {
+            report($error);
+            $this->message = 'Update belum dapat dilanjutkan karena worker gagal dihentikan. Klik Update Sistem untuk mencoba kembali.';
+
+            return false;
+        }
     }
 }
