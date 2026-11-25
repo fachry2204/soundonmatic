@@ -75,6 +75,16 @@ describe('live draft result readiness', () => {
             await expect(findDraft(page, 'DISINI', '1kyota')).rejects.toThrow('DRAFT_LOOKUP_UNCONFIRMED');
         } finally { await browser.close(); }
     }, 20000);
+    it('waits for the draft search control to appear before checking duplicates', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.goto('data:text/html,<!doctype html>');
+            await page.setContent(`<button role="tab" aria-selected="true">Drafts</button><table><tbody><tr><td>My Song</td><td>Artist A</td></tr></tbody></table>
+                <script>setTimeout(() => { const input = document.createElement('input'); input.placeholder = 'Search'; document.body.append(input); }, 1000)</script>`);
+            expect((await findDraft(page, 'My Song', 'Artist A'))?.found).toBe(true);
+        } finally { await browser.close(); }
+    }, 10000);
     it('finds an existing draft after a delayed search instead of returning absent at 350ms', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

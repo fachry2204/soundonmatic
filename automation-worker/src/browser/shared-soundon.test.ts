@@ -5,7 +5,7 @@ vi.mock('./context-manager.js', () => ({
     sessionContext: mocked.create,
     closeContext: mocked.closed,
 }));
-import { acquireSoundOnPage, closeIdleSoundOnContext } from './shared-soundon.js';
+import { acquireSoundOnPage, captureSessionState, closeIdleSoundOnContext } from './shared-soundon.js';
 
 describe('shared SoundOn browser', () => {
     afterEach(async () => { await closeIdleSoundOnContext(); });
@@ -64,5 +64,16 @@ describe('shared SoundOn browser', () => {
         expect(mocked.closed).not.toHaveBeenCalled();
         await a.release();
         expect(await closeIdleSoundOnContext()).toBe(true);
+    });
+    it('recognizes an intermediate cookie snapshot returned before a second rotation', async () => {
+        const a = await acquireSoundOnPage(state);
+        const intermediate = { ...state, cookies: [{ ...state.cookies[0]!, value: 'intermediate' }] };
+        const newest = { ...state, cookies: [{ ...state.cookies[0]!, value: 'newest' }] };
+        vi.mocked(a.context.storageState).mockResolvedValueOnce(intermediate).mockResolvedValue(newest);
+        const returned = await captureSessionState(a.context);
+        const b = await acquireSoundOnPage(returned, { waitTimeoutMs: 20 });
+        expect(b.context).toBe(a.context);
+        expect(mocked.create).toHaveBeenCalledTimes(1);
+        await Promise.all([a.release(), b.release()]);
     });
 });

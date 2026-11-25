@@ -479,19 +479,21 @@ final class Dashboard extends Component
         $this->operationError = null;
         $this->uploadMessage = null;
         $job = ReleaseJob::findOrFail($jobId);
-        abort_unless($job->error_code === 'DUPLICATE_RELEASE_FOUND' && blank($job->soundon_draft_id), 409);
-        abort_if(blank($job->release_title) || blank($job->artist_name) || blank($job->soundfresh_release_url), 409);
-        $updated = ReleaseJob::whereKey($job->id)->where('error_code', 'DUPLICATE_RELEASE_FOUND')
-            ->whereNull('soundon_draft_id')->update([
+        abort_unless($job->canChangeSoundfreshToUnderReview(), 409);
+        $updated = ReleaseJob::whereKey($job->id)
+            ->where(fn ($query) => $query->whereNull('error_code')->orWhere('error_code', '!=', 'DRAFT_MANUAL_REVIEW_PENDING'))
+            ->where(fn ($query) => $query->where('error_code', 'DUPLICATE_RELEASE_FOUND')->orWhereNotNull('soundon_draft_id'))
+            ->where(fn ($query) => $query->whereNull('soundfresh_workflow_status')->orWhere('soundfresh_workflow_status', 'pending'))
+            ->where('status', '!=', ReleaseJobStatus::Running)->update([
                 'status' => ReleaseJobStatus::Queued,
                 'error_code' => 'DRAFT_MANUAL_REVIEW_PENDING', 'error_message' => null,
-                'progress_label' => 'Menunggu pemeriksaan ulang draft dan status Soundfresh',
+                'progress_label' => 'Menunggu pemeriksaan SoundOn dan perubahan status ke Under Review',
                 'finished_at' => null, 'progress_updated_at' => now(),
             ]);
         abort_unless($updated === 1, 409);
-        app(OperatorAudit::class)->record('draft_manual_review_requested', 'Operator confirmed manual comparison of existing SoundOn draft before requesting Soundfresh review.', $job->automation_run_id, $job->id);
+        app(OperatorAudit::class)->record('draft_manual_review_requested', 'Operator requested Pending to Under Review after a matching SoundOn release was detected.', $job->automation_run_id, $job->id);
         ReviewManuallyVerifiedDraft::dispatch((string) $job->id);
-        $this->uploadMessage = "Pemeriksaan ulang draft {$job->release_title} telah diantrikan; tidak ada upload baru.";
+        $this->uploadMessage = "Perubahan status Soundfresh {$job->release_title} dari Pending ke Under Review telah diantrikan.";
     }
 
     /** Force an upload only after an operator explicitly accepts a duplicate release. */

@@ -5,6 +5,7 @@ export type ReleaseStatusLookup = { key: string; title: string; artist: string }
 export type LastUpdatedLookup = { key: string; title: string; artist: string };
 export type ReleaseStatusMatch = {
     found: true;
+    release_id?: string;
     status: SoundOnReleaseStatus;
     release_url: string;
     upc: string | null;
@@ -346,6 +347,7 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
             const status = await statusFromCandidate(candidate) ?? "under_review";
             matches[lookup.key] = {
                 found: true,
+                release_id: (await candidate.getAttribute('data-row-key')) ?? undefined,
                 status,
                 release_url: await releaseUrl(page, candidate),
                 upc: null,
@@ -370,7 +372,7 @@ export async function findReleaseStatuses(page: Page, lookups: ReleaseStatusLook
                     const values = ["delivery", "approved", "live", "not_approved"].includes(detected.value)
                         ? await inspectDetails(page, candidate, url)
                         : { upc: null, isrcs: [], reason: null };
-                    matches[lookup.key] = { found: true, status: detected.value, release_url: url, ...values };
+                    matches[lookup.key] = { found: true, release_id: (await candidate.getAttribute('data-row-key')) ?? undefined, status: detected.value, release_url: url, ...values };
                     return true;
                 }
             }

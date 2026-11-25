@@ -32,7 +32,8 @@ export async function readDraftInventory(page) {
             throw new Error('DRAFT_INVENTORY_UNCONFIRMED:filtered_or_stale');
         if (total !== expected || start !== items.length + 1 || end < start)
             throw new Error('DRAFT_INVENTORY_UNCONFIRMED:pagination');
-        const rows = await page.locator('tr.semi-table-row:visible').all();
+        // Semi UI applies semi-table-row to its header as well as data rows.
+        const rows = await page.locator('tr.semi-table-row[data-row-key]:visible').all();
         if (rows.length !== end - start + 1)
             throw new Error('DRAFT_INVENTORY_UNCONFIRMED:row_count');
         for (const row of rows) {

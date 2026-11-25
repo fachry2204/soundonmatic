@@ -27,6 +27,12 @@ final class VerifySoundfreshReleaseIdentifiers implements ShouldQueue
     public function handle(PlaywrightClient $worker, SessionManager $sessions): void
     {
         $job = ReleaseJob::query()->findOrFail($this->releaseJobId);
+        // A duplicate queue message must preserve an already confirmed Verify
+        // result instead of failing the Uploading-only precondition below.
+        if ($job->soundfresh_workflow_status === 'verified' && $job->soundfresh_verified_at !== null) {
+            $job->update(['soundfresh_verify_status' => 'success', 'soundfresh_verify_error' => null]);
+            return;
+        }
         $isrcs = array_values(array_filter((array) $job->soundon_isrcs_json));
         if ($job->soundfresh_workflow_status !== 'uploading' || ! filled($job->soundon_upc) || count($isrcs) < max(1, (int) $job->track_count)) {
             $job->update(['soundfresh_verify_status' => 'failed', 'soundfresh_verify_error' => 'Rilisan harus berada di tab Uploading dan memiliki UPC serta seluruh ISRC.']);

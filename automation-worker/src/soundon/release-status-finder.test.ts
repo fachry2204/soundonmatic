@@ -58,10 +58,10 @@ describe("findReleaseStatuses", () => {
         try {
             const page = await browser.newPage();
             await page.setContent(`<table><thead><tr><th></th><th>Title</th><th>Tracks</th><th>Status</th></tr></thead><tbody>
-                <tr><td><input type="checkbox"></td><td><div class="so-album-preview-item-title-text">First Creek Road</div><span title="Randall Ray Coulter">Randall Ray Co...</span></td><td>1</td><td>Delivered</td></tr>
+                <tr data-row-key="7712024909908609032"><td><input type="checkbox"></td><td><div class="so-album-preview-item-title-text">First Creek Road</div><span title="Randall Ray Coulter">Randall Ray Co...</span></td><td>1</td><td>Delivered</td></tr>
                 </tbody></table>`);
             const matches = await findReleaseStatuses(page, [{ key: '4499', title: 'First Creek Road', artist: 'Randall Ray Coulter' }]);
-            expect(matches['4499']).toMatchObject({ found: true, status: 'delivery' });
+            expect(matches['4499']).toMatchObject({ found: true, release_id: '7712024909908609032', status: 'delivery' });
         } finally { await browser.close(); }
     }, 10000);
     it('uses the title header when checkbox rows have no SoundOn-specific classes', async () => {

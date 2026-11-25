@@ -1,6 +1,7 @@
-﻿import Fastify from "fastify";
+import Fastify from "fastify";
 import { verifyRequest } from "./security.js";
 import { closeContext, context, sessionContext } from "./browser/context-manager.js";
+import { navigateToReadPage } from './browser/navigation.js';
 import { soundfreshSelectors as sf } from "./selectors/soundfresh.js";
 import { Readable } from "node:stream";
 import { authSelectors } from "./selectors/auth.js";
@@ -11,7 +12,7 @@ import { earliestReleaseFirst, uploadedAtIso } from './soundfresh/pending-order.
 import { advanceWizardStep, createDraft, enableStandardMonetization, setChoiceField, setPublisherField, setScopedRadio, setSearchField, setTextField, setTikTokPreRelease } from "./soundon/draft-driver.js";
 import { findDraft, findDrafts } from "./soundon/draft-finder.js";
 import { reserveDraftCreation } from './soundon/draft-creation-guard.js';
-import { dismissSoundOnTwoStepPrompt, sessionStateOnPage } from './browser/session-validation.js';
+import { dismissSoundOnTwoStepPrompt, sessionStateOnPage, waitForSessionStateOnPage } from './browser/session-validation.js';
 import { findReleaseStatuses } from "./soundon/release-status-finder.js";
 import { findLastUpdatedDates } from "./soundon/release-status-finder.js";
 import { verifySoundfreshRelease } from "./soundfresh/verify-release.js";
@@ -21,7 +22,7 @@ import { moveSoundfreshReleaseToUnderReview } from "./soundfresh/review-release.
 import { ensureSoundfreshEnglish } from './soundfresh/language.js';
 import { scanProtectedReleases } from './soundfresh/protected-release-scan.js';
 import { readDraftInventory } from './soundon/draft-inventory.js';
-import { acquireSoundOnPage, closeIdleSoundOnContext, soundOnSessionInUse } from './browser/shared-soundon.js';
+import { acquireSoundOnPage, captureSessionState, closeIdleSoundOnContext, soundOnSessionInUse } from './browser/shared-soundon.js';
 import type { BrowserContext } from "playwright";
 const app = Fastify({
     logger: {
@@ -132,9 +133,9 @@ app.post("/v1/sessions/validate", async (req) => {
             waitUntil: "domcontentloaded",
         });
         await page.waitForTimeout(2_000);
-        const status = await sessionStateOnPage(page, body.platform);
+        const status = await waitForSessionStateOnPage(page, body.platform);
         return { success: true, data: { valid: status === 'valid', status,
-            ...(status === 'valid' ? { session_state: await browser.storageState({ indexedDB: true }) } : {}) } };
+            ...(status === 'valid' ? { session_state: await captureSessionState(browser) } : {}) } };
     } finally {
         if (sharedLease) await sharedLease.release(); else await closeContext(browser);
     }
@@ -239,7 +240,7 @@ app.post("/v1/sessions/login", async (req, reply) => {
             success: true,
             data: {
                 manual_auth_required: false,
-                session_state: await browser.storageState({ indexedDB: true }),
+                session_state: await captureSessionState(browser),
                 landing_url: page.url(),
             },
         };
@@ -256,7 +257,7 @@ app.post('/v1/soundfresh/protected-scan', async (req, reply) => {
         if (/\/login/i.test(page.url())) return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
         await ensureSoundfreshEnglish(page);
         const scans = await scanProtectedReleases(page);
-        return { success: true, data: { scans, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { scans, session_state: await captureSessionState(browser) } };
     } finally {
         await closeContext(browser);
     }
@@ -362,7 +363,7 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
                     break;
                 }
             }
-            return { success: true, data: { matches, session_state: await browser.storageState({ indexedDB: true }) } };
+            return { success: true, data: { matches, session_state: await captureSessionState(browser) } };
         }
 
         const requestedMax = Number(body?.options?.max_items);
@@ -533,7 +534,7 @@ app.post("/v1/soundfresh/pending", async (req, reply) => {
             collectedItems: items.length,
         }, "Soundfresh release collection completed");
         const orderedItems = requestedStatus === 'pending' ? earliestReleaseFirst(items).slice(0, max) : items;
-        return { success: true, data: { items: orderedItems, has_more: false, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { items: orderedItems, has_more: false, session_state: await captureSessionState(browser) } };
     } finally {
         await closeContext(browser);
     }
@@ -550,7 +551,7 @@ app.post("/v1/soundfresh/releases/lyrics", async (req, reply) => {
         if (/\/login/i.test(page.url())) return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
         await ensureSoundfreshEnglish(page);
         const tracks = await extractReleaseLyrics(page);
-        return { success: true, data: { tracks, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { tracks, session_state: await captureSessionState(browser) } };
     } finally { await closeContext(browser); }
 });
 app.post("/v1/soundfresh/releases/extract", async (req, reply) => {
@@ -577,7 +578,7 @@ app.post("/v1/soundfresh/releases/extract", async (req, reply) => {
                 cancelled: false,
                 updatedAt: new Date().toISOString(),
             });
-            return { success: true, data: { ...metadata, session_state: await browser.storageState({ indexedDB: true }) } };
+            return { success: true, data: { ...metadata, session_state: await captureSessionState(browser) } };
         } catch (error) {
             jobs.set(id, {
                 status: "needs_selector_discovery",
@@ -642,7 +643,7 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
         // creation form.
         // Earlier batch checks are advisory: never bypass this live check.
         if (duplicateTitle && duplicateArtist) {
-            await page.goto(draftsUrl, { waitUntil: "domcontentloaded" });
+            await navigateToReadPage(page, draftsUrl);
             await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
             if (/login|sign-in/i.test(page.url())) {
                 return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
@@ -651,7 +652,7 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
             if (duplicate) {
                 return {
                     success: true,
-                    data: { ...duplicate, already_exists: true, session_state: await browser.storageState({ indexedDB: true }) },
+                    data: { ...duplicate, already_exists: true, session_state: await captureSessionState(browser) },
                 };
             }
         }
@@ -663,7 +664,7 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
         // own release-type card; Single keeps the direct Single form.
         const entryUrl = isMultiTrackRelease ? draftsUrl : singleCreateUrl;
         if (page.url() !== entryUrl) {
-            await page.goto(entryUrl, { waitUntil: "domcontentloaded" });
+            await navigateToReadPage(page, entryUrl);
         }
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
@@ -701,7 +702,7 @@ app.post("/v1/soundon/drafts/create", async (req, reply) => {
             });
             return {
                 success: true,
-                data: { ...result, session_state: await browser.storageState({ indexedDB: true }) },
+                data: { ...result, session_state: await captureSessionState(browser) },
             };
         } catch (error) {
             const code =
@@ -757,7 +758,7 @@ app.post('/v1/soundon/drafts/delete-one', async (req, reply) => {
         // Confirm against a newly read, complete Drafts inventory instead.
         const remaining = await readDraftInventory(page);
         if (remaining.some(draft => draft.draft_id === body.draft_id)) throw new Error('DRAFT_DELETE_NOT_CONFIRMED');
-        return { success: true, data: { deleted: true, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { deleted: true, session_state: await captureSessionState(browser) } };
     } finally { await lease.release(); }
 });
 app.post('/v1/soundon/drafts/inventory', async (req, reply) => {
@@ -769,7 +770,7 @@ app.post('/v1/soundon/drafts/inventory', async (req, reply) => {
         await page.goto(process.env.SOUNDON_DRAFTS_URL?.trim() || `${baseUrl('soundon')}/library/list?type=drafts`, { waitUntil: 'domcontentloaded' });
         if (/login|sign-in/i.test(page.url())) return reply.code(401).send({ success: false, error: 'AUTH_SESSION_EXPIRED' });
         const drafts = await readDraftInventory(page);
-        return { success: true, data: { drafts, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { drafts, session_state: await captureSessionState(browser) } };
     } finally { await lease.release(); }
 });
 app.post("/v1/soundon/drafts/find", async (req, reply) => {
@@ -791,9 +792,9 @@ app.post("/v1/soundon/drafts/find", async (req, reply) => {
                 return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
             }
             const match = await findDraft(page, body.title, body.artist);
-            if (match) return { success: true, data: { ...match, session_state: await browser.storageState({ indexedDB: true }) } };
+            if (match) return { success: true, data: { ...match, session_state: await captureSessionState(browser) } };
         }
-        return { success: true, data: { found: false, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { found: false, session_state: await captureSessionState(browser) } };
     } finally {
         await lease.release();
     }
@@ -810,7 +811,7 @@ app.post("/v1/soundon/drafts/find-many", async (req, reply) => {
         await page.goto(process.env.SOUNDON_DRAFTS_URL?.trim() || `${baseUrl("soundon")}/library/list?type=draft`, { waitUntil: "domcontentloaded" });
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url())) return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
-        return { success: true, data: { matches: await findDrafts(page, lookups), session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { matches: await findDrafts(page, lookups), session_state: await captureSessionState(browser) } };
     } finally {
         await lease.release();
     }
@@ -829,7 +830,7 @@ app.post("/v1/soundon/reviews", async (req, reply) => {
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url())) return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });
         const matches = await findLastUpdatedDates(page, lookups);
-        return { success: true, data: { matches, session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { matches, session_state: await captureSessionState(browser) } };
     } catch (error) {
         const code = error instanceof Error ? error.message : "SOUNDON_REVIEW_FETCH_FAILED";
         req.log.warn({ code }, "SoundOn review list collection failed");
@@ -859,7 +860,7 @@ app.post("/v1/soundon/releases/statuses", async (req, reply) => {
             placeholders: await page.locator("input:visible").evaluateAll((inputs) => inputs.map((input) => input.getAttribute("placeholder") || input.getAttribute("aria-label") || input.getAttribute("type") || "")),
             sampleRows: (await page.locator('tr:visible, [role="row"]:visible').allInnerTexts().catch(() => [])).slice(0, 5),
         }, "SoundOn release status page prepared");
-        return { success: true, data: { matches: await findReleaseStatuses(page, lookups, body.strict_artist === true), session_state: await browser.storageState({ indexedDB: true }) } };
+        return { success: true, data: { matches: await findReleaseStatuses(page, lookups, body.strict_artist === true), session_state: await captureSessionState(browser) } };
     } finally {
         activeSoundOnStatusPages.delete(lease.page);
         await lease.release();
@@ -918,7 +919,7 @@ app.post("/v1/soundfresh/releases/verify-identifiers", async (req, reply) => {
     const browser = await sessionContext(body.session_state);
     try {
         const page = await browser.newPage();
-        await page.goto(target.href, { waitUntil: "domcontentloaded" });
+        await navigateToReadPage(page, target.href);
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
         if (/login|sign-in/i.test(page.url()))
             return reply.code(401).send({ success: false, error: "AUTH_SESSION_EXPIRED" });

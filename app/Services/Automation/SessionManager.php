@@ -76,6 +76,13 @@ final class SessionManager
             throw new BrowserWorkerException('authentication_failed', "Browser worker failed while authenticating {$platform->value}.");
         } catch (ConnectionException) {
             throw new BrowserWorkerException('worker_unavailable', 'Browser worker is unavailable.');
+        } catch (\RuntimeException $error) {
+            if ($error->getCode() === 401 && in_array($error->getMessage(), ['AUTH_INVALID_CREDENTIALS', 'AUTH_LOGIN_FAILED'], true)) {
+                $account->update(['status' => 'authentication_failed']);
+                throw new BrowserWorkerException('invalid_credentials', "{$platform->value} rejected the stored credentials.");
+            }
+
+            throw new BrowserWorkerException('authentication_failed', "Browser worker failed while authenticating {$platform->value}.");
         } catch (\Throwable) {
             throw new BrowserWorkerException('authentication_failed', "Browser worker failed while authenticating {$platform->value}.");
         }

@@ -64,6 +64,18 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
             $jobs->each->update(['progress_percent' => 35, 'progress_label' => 'Memeriksa '.count($lookups).' rilisan di Drafts SoundOn...']);
             $phase = 'SoundOn Drafts';
             $draftMatches = $worker->findDrafts($lookups, $soundon->session_state_encrypted);
+            $unmatched = array_values(array_filter($lookups, fn (array $lookup): bool => ! isset($draftMatches[$lookup['key']])));
+            $releaseMatches = [];
+            if ($unmatched !== []) {
+                $phase = 'All Releases SoundOn';
+                $jobs->each->update(['progress_label' => 'Memeriksa rilisan yang sudah ada di All Releases SoundOn...']);
+                $releaseMatches = $worker->releaseDuplicates($unmatched, $soundon->fresh()->session_state_encrypted);
+                foreach ($releaseMatches as $match) {
+                    if (($match['found'] ?? false) !== true) {
+                        throw new \RuntimeException((string) ($match['error'] ?? 'Hasil pencarian All Releases SoundOn belum terkonfirmasi.'));
+                    }
+                }
+            }
             $total = $jobs->count();
             foreach ($jobs as $index => $job) {
                 $current = trim((string) $job->release_title);
@@ -124,6 +136,17 @@ final class CheckPendingReleaseDuplicates implements ShouldQueue
                         'error_message' => 'Tidak dapat di-upload otomatis: judul dan artis yang sama ditemukan di SoundOn Drafts. Metadata draft belum dikonfirmasi cocok dengan seluruh metadata sumber; cocokkan secara manual sebelum melanjutkan.',
                         'progress_percent' => 100,
                         'finished_at' => now(),
+                    ]);
+                } elseif (isset($releaseMatches[(string) $job->id])) {
+                    $match = $releaseMatches[(string) $job->id];
+                    $job->update([
+                        'status' => ReleaseJobStatus::NeedsAttention,
+                        'soundon_release_status' => $match['status'] ?? null,
+                        'soundon_draft_url' => $match['release_url'] ?? null,
+                        'error_code' => 'DUPLICATE_RELEASE_FOUND',
+                        'error_message' => 'Judul dan artis yang sama ditemukan di All Releases SoundOn. Gunakan Ubah Status ke Under Review untuk memperbarui status Pending di Soundfresh.',
+                        'progress_label' => 'Rilisan sudah ada di SoundOn — siap diubah ke Under Review',
+                        'progress_percent' => 100, 'finished_at' => now(),
                     ]);
                 } else {
                     $job->update([

@@ -351,6 +351,7 @@ export async function findReleaseStatuses(page, lookups, strictArtist = false) {
             const status = await statusFromCandidate(candidate) ?? "under_review";
             matches[lookup.key] = {
                 found: true,
+                release_id: (await candidate.getAttribute('data-row-key')) ?? undefined,
                 status,
                 release_url: await releaseUrl(page, candidate),
                 upc: null,
@@ -376,7 +377,7 @@ export async function findReleaseStatuses(page, lookups, strictArtist = false) {
                     const values = ["delivery", "approved", "live", "not_approved"].includes(detected.value)
                         ? await inspectDetails(page, candidate, url)
                         : { upc: null, isrcs: [], reason: null };
-                    matches[lookup.key] = { found: true, status: detected.value, release_url: url, ...values };
+                    matches[lookup.key] = { found: true, release_id: (await candidate.getAttribute('data-row-key')) ?? undefined, status: detected.value, release_url: url, ...values };
                     return true;
                 }
             }

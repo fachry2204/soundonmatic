@@ -36,3 +36,14 @@ export async function sessionStateOnPage(page: Page, platform: 'soundfresh' | 's
     // A login URL without its form can be a loading/error/intermediate page.
     return 'unknown';
 }
+
+/** SPA login forms can render after navigation and the initial loading screen. */
+export async function waitForSessionStateOnPage(page: Page, platform: 'soundfresh' | 'soundon', timeoutMs = 15_000): Promise<'valid' | 'expired' | 'manual_auth' | 'unknown'> {
+    const deadline = Date.now() + timeoutMs;
+    let status = await sessionStateOnPage(page, platform);
+    while (status === 'unknown' && Date.now() < deadline) {
+        await page.waitForTimeout(Math.min(250, Math.max(1, deadline - Date.now())));
+        status = await sessionStateOnPage(page, platform);
+    }
+    return status;
+}

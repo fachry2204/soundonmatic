@@ -341,16 +341,29 @@
                         @endphp
                         <tr wire:key="release-monitor-{{ $job->id }}">
                             <td><div class="min-w-52"><a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer">{{ $displayTitle }} ↗</a><div class="mt-1 flex flex-wrap items-center gap-1.5"><span class="badge badge--brand">{{ $releaseTypeLabel }}</span><span class="text-[11px] text-slate-400">ID {{ $job->soundfresh_release_id }}@if($job->artist_name) · {{ $job->artist_name }}@endif</span></div></div></td>
-                            <td><span class="badge badge--success"><span class="status-dot status-dot--active"></span>Sudah diambil</span><p class="mt-1 text-[11px] text-slate-400">{{ $hasMetadata ? 'Metadata berhasil dibaca' : 'Menunggu ekstraksi metadata' }}</p></td>
+                            <td>
+                                @php
+                                $soundfreshLabel = match ($job->soundfresh_workflow_status) {
+                                    'pending' => 'Pending', 'under_review' => 'Under Review',
+                                    'uploading' => 'Uploading', 'verified' => 'Verified', 'rejected' => 'Rejected',
+                                    default => 'Sudah diambil',
+                                };
+                                @endphp
+                                <span class="badge {{ $job->soundfresh_workflow_status === 'pending' ? 'badge--warning' : 'badge--success' }}">{{ $soundfreshLabel }}</span>
+                                <p class="mt-1 text-[11px] text-slate-400">{{ $hasMetadata ? 'Metadata berhasil dibaca' : 'Menunggu ekstraksi metadata' }}</p>
+                            </td>
                             <td>
                                 @if ($hasDraft)
                                     @php
-                                        $draftLabel = $job->soundon_draft_status === 'already_exists'
+                                        $draftLabel = filled($job->soundon_release_status) ? 'Sudah ada di SoundOn' : ($job->soundon_draft_status === 'already_exists'
                                             ? 'Sudah ada di draft SoundOn'
-                                            : 'Draft tersimpan';
+                                            : 'Draft tersimpan');
                                     @endphp
                                     @if ($job->soundon_draft_url)<a href="{{ $job->soundon_draft_url }}" target="_blank" rel="noopener noreferrer" class="badge badge--success">{{ $draftLabel }} ↗</a>@else<span class="badge badge--success">{{ $draftLabel }}</span>@endif
                                     <p class="mt-1 text-[11px] text-slate-400">Draft ID {{ $job->soundon_draft_id }}</p>
+                                @elseif(filled($job->soundon_release_status))
+                                    <span class="badge badge--success">Sudah ada di SoundOn</span>
+                                    <p class="mt-1 text-[11px] text-slate-400">{{ str_replace('_', ' ', ucfirst($job->soundon_release_status)) }}</p>
                                 @else
                                     <span class="badge {{ in_array($jobStatus, ['failed','needs_attention','manual_auth_required'], true) ? 'badge--danger' : 'badge--warning' }}">Belum diunggah</span><p class="mt-1 max-w-44 text-[11px] text-slate-400">{{ in_array($jobStatus, ['failed','needs_attention','manual_auth_required'], true) && $job->error_code ? $job->error_code : 'Menunggu proses SoundOn' }}</p>
                                 @endif
@@ -415,12 +428,19 @@
                                         </button>
                                     @endcan
                                 @endif
+                                @if($job->canChangeSoundfreshToUnderReview())
+                                    @can('automation.retry')
+                                        <button type="button" wire:click="reviewVerifiedDraft('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="reviewVerifiedDraft('{{ $job->id }}')" class="secondary-button mt-2 min-h-11" aria-label="Ubah status Soundfresh {{ $displayTitle }} ke Under Review">
+                                            <span wire:loading.remove wire:target="reviewVerifiedDraft('{{ $job->id }}')">Ubah Status ke Under Review</span>
+                                            <span wire:loading wire:target="reviewVerifiedDraft('{{ $job->id }}')">Mengantrekan...</span>
+                                        </button>
+                                        <p class="mt-1 text-xs text-slate-500">Judul dan artis akan diperiksa ulang di SoundOn sebelum status Soundfresh diubah.</p>
+                                    @endcan
+                                @elseif($job->error_code === 'DRAFT_MANUAL_REVIEW_PENDING')
+                                    <span class="badge badge--warning" role="status">Mengubah status ke Under Review...</span>
+                                @endif
                                 @if($job->error_code === 'DUPLICATE_RELEASE_FOUND' && blank($job->soundon_draft_id))
                                     @can('automation.retry')
-                                        <button type="button" wire:click="reviewVerifiedDraft('{{ $job->id }}')" wire:confirm="Sudahkah Anda memastikan hanya ada satu draft yang sesuai, serta membandingkan judul, artis, seluruh track, audio, cover, dan metadata dengan Soundfresh? Sistem hanya memeriksa ulang judul dan artis, bukan seluruh isi draft. Lanjutkan hanya jika sudah cocok." wire:loading.attr="disabled" wire:target="reviewVerifiedDraft('{{ $job->id }}')" class="secondary-button mt-2">
-                                            Ubah status Soundfresh
-                                        </button>
-                                        <p class="mt-1 text-[10px] text-amber-700">Periksa draft dan seluruh track secara manual terlebih dahulu; tidak membuat draft baru.</p>
                                         <button type="button" wire:click="forceDuplicateUpload('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="forceDuplicateUpload('{{ $job->id }}')" class="secondary-button mt-2 border-amber-300 text-amber-800 hover:bg-amber-50" aria-label="Tetap upload {{ $displayTitle }} meskipun duplikat">
                                             <span wire:loading.remove wire:target="forceDuplicateUpload('{{ $job->id }}')">Tetap Upload</span>
                                             <span wire:loading wire:target="forceDuplicateUpload('{{ $job->id }}')">Mengantrekan...</span>

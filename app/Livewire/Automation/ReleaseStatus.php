@@ -31,7 +31,7 @@ final class ReleaseStatus extends Component
     public string $status = 'all';
 
     #[Url(as: 'soundon')]
-    public string $soundOnStatus = 'new';
+    public string $soundOnStatus = 'all';
 
     public string $releaseDateFilter = 'all';
 
@@ -173,24 +173,13 @@ final class ReleaseStatus extends Component
         }
         $this->selectedJobIds = [];
 
-        // Replace the previous status-check snapshot atomically. Pipeline runs,
-        // account credentials, and unrelated release jobs must remain intact.
-        $run = DB::transaction(function (): AutomationRun {
-            $oldStatusRunIds = AutomationRun::query()
-                ->where('summary_json->purpose', 'soundon_status_check')
-                ->pluck('id');
-
-            if ($oldStatusRunIds->isNotEmpty()) {
-                ReleaseJob::query()->whereIn('automation_run_id', $oldStatusRunIds)->delete();
-                AutomationRun::query()->whereIn('id', $oldStatusRunIds)->delete();
-            }
-
-            return AutomationRun::query()->create([
-                'triggered_by' => auth()->id(),
-                'status' => 'queued',
-                'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
-            ]);
-        });
+        // Keep prior results: releases leave Uploading after verification and
+        // cannot be rediscovered by the next Uploading-only scan.
+        $run = AutomationRun::query()->create([
+            'triggered_by' => auth()->id(),
+            'status' => 'queued',
+            'summary_json' => ['purpose' => 'soundon_status_check', 'soundfresh_source' => 'uploading'],
+        ]);
         QueueSoundOnStatusChecks::dispatch(auth()->id(), 'uploading', $run->id);
         $this->bulkCheckRequested = true;
         $this->syncMessage = 'Sedang mengambil seluruh rilisan Uploading Soundfresh dan memeriksa ulang status SoundOn.';
@@ -492,8 +481,8 @@ final class ReleaseStatus extends Component
     {
         $sourceStatuses = match ($this->checkSourceTab) {
             'under_review' => ['under_review'],
-            'uploading' => ['uploading'],
-            default => ['under_review', 'uploading'],
+            'uploading' => ['uploading', 'verified', 'published'],
+            default => ['under_review', 'uploading', 'verified', 'published'],
         };
 
         $query = ReleaseJob::query()

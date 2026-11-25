@@ -169,51 +169,45 @@ describe("matchesFieldLabel", () => {
 });
 
 describe("resolveSoundOnPreReleaseDate", () => {
-    it("defaults to seven days before release when Soundfresh omits the value", () => {
+    it("uses seven days before the release date", () => {
         expect(resolveSoundOnPreReleaseDate(
-            null,
             "September 27, 2026",
             "September 14, 2026",
         )).toBe("2026-09-20");
     });
 
-    it("keeps a future Soundfresh pre-release date earlier than the release date", () => {
+    it("derives the date from the release date", () => {
         expect(resolveSoundOnPreReleaseDate(
-            "September 1, 2026",
             "September 15, 2026",
             "August 16, 2026",
-        )).toBe("2026-09-01");
+        )).toBe("2026-09-08");
     });
 
     it("omits a pre-release date less than seven days before release", () => {
         expect(resolveSoundOnPreReleaseDate(
-            "September 10, 2026",
             "September 15, 2026",
-            "August 16, 2026",
+            "September 10, 2026",
         )).toBe("");
     });
 
     it("omits an elapsed pre-release date", () => {
         expect(resolveSoundOnPreReleaseDate(
-            "August 10, 2026",
             "August 30, 2026",
-            "August 16, 2026",
+            "August 30, 2026",
         )).toBe("");
     });
 
-    it("omits a same-day pre-release date rejected by SoundOn", () => {
+    it("allows a calculated date after today", () => {
         expect(resolveSoundOnPreReleaseDate(
-            "September 14, 2026",
             "September 23, 2026",
             "September 14, 2026",
-        )).toBe("");
+        )).toBe("2026-09-16");
     });
 
-    it("omits a future pre-release date equal to the release date", () => {
+    it("omits an already elapsed calculated date", () => {
         expect(resolveSoundOnPreReleaseDate(
             "September 15, 2026",
             "September 15, 2026",
-            "August 16, 2026",
         )).toBe("");
     });
 });

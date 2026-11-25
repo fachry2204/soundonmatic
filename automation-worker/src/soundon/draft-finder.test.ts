@@ -96,7 +96,6 @@ describe("findDraft", () => {
         ];
         const page = {
             waitForLoadState: async () => undefined,
-            waitForTimeout: async () => undefined,
             url: () => "https://www.soundon.global/library/list?type=draft",
             locator: () => ({ count: async () => candidates.length, nth: (index: number) => candidates[index] }),
             getByPlaceholder: () => missingSearch,

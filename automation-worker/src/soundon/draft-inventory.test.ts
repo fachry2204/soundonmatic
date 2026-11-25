@@ -9,7 +9,7 @@ describe('draft inventory', () => {
             const page = await browser.newPage();
             await page.goto('data:text/html,<!doctype html>');
             await page.setContent(`<button role="tab" aria-selected="true">Drafts 2</button><input id="title">
-                <table><tbody id="rows"><tr class="semi-table-row" data-row-key="7709712260272785414"><td aria-colindex="2"><span class="so-album-preview-item-title-text">Ember City</span></td><td aria-colindex="3"><span class="semi-tag-content">Phonk Forge</span></td><td aria-colindex="4">10</td></tr></tbody></table>
+                <table><thead><tr class="semi-table-row"><th>Title</th><th>Artist</th></tr></thead><tbody id="rows"><tr class="semi-table-row" data-row-key="7709712260272785414"><td aria-colindex="2"><span class="so-album-preview-item-title-text">Ember City</span></td><td aria-colindex="3"><span class="semi-tag-content">Phonk Forge</span></td><td aria-colindex="4">10</td></tr></tbody></table>
                 <div id="info">Showing 1 to 1 of 2</div><button aria-label="Next" onclick="document.querySelector('#rows').innerHTML='<tr class=semi-table-row data-row-key=7709712260272785415><td aria-colindex=2><span class=so-album-preview-item-title-text>Other</span></td><td aria-colindex=3><span class=semi-tag-content>Artist</span></td><td aria-colindex=4>1</td></tr>';document.querySelector('#info').textContent='Showing 2 to 2 of 2';this.disabled=true">Next</button>`);
             const items = await readDraftInventory(page);
             expect(items.map(item => item.title)).toEqual(['Ember City', 'Other']);

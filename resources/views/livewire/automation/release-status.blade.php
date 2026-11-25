@@ -10,7 +10,7 @@
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <span class="badge badge--brand">Live · 3 detik</span>
-                <span class="text-xs text-slate-500">Sumber: seluruh Uploading Soundfresh</span>
+                <span class="text-xs text-slate-500">Sumber scan: Uploading &middot; riwayat selesai tetap tersimpan</span>
                 <button type="button" wire:click="downloadUnderReviewReport" wire:loading.attr="disabled" wire:target="downloadUnderReviewReport" class="secondary-button">
                     <span wire:loading.remove wire:target="downloadUnderReviewReport">Download Rilis Under Review</span>
                     <span wire:loading wire:target="downloadUnderReviewReport">Membuat Excel...</span>
@@ -121,7 +121,7 @@
                         <tr wire:key="release-status-{{ $job->id }}">
                             <td><input type="checkbox" wire:model.live="selectedJobIds" value="{{ $job->id }}" @disabled(!$canVerify) aria-label="Pilih {{ $title }}"></td>
                             <td><div class="min-w-52"><strong class="text-slate-800">{{ $title }}</strong><p class="mt-1 text-[11px] text-slate-400">{{ $job->artist_name ?: 'Artis tidak tersedia' }}</p></div></td>
-                            @php($soundfreshStatusLabels = ['pending' => 'Pending', 'revision' => 'Revision', 'under_review' => 'Under Review', 'uploading' => 'Uploading', 'rejected' => 'Rejected', 'published' => 'Published', 'draft' => 'Draft', 'verified' => 'Verified'])
+                            @php($soundfreshStatusLabels = ['pending' => 'Pending', 'revision' => 'Revision', 'under_review' => 'Under Review', 'uploading' => 'Uploading', 'rejected' => 'Rejected', 'published' => 'Published', 'draft' => 'Draft', 'verified' => 'Published (Verified)'])
                             <td>
                                 <a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer" class="badge badge--success">ID {{ $job->soundfresh_release_id }} ↗</a>
                                 <p class="mt-1 text-[11px] text-slate-400">Tab: {{ $soundfreshStatusLabels[$job->soundfresh_workflow_status] ?? ucfirst(str_replace('_', ' ', $job->soundfresh_workflow_status ?? 'belum diketahui')) }}</p>
@@ -162,10 +162,12 @@
                             </td>
                             <td>
                                 <div class="release-status-actions">
-                                    <button type="button" wire:click="checkSoundOnStatus('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="checkSoundOnStatus('{{ $job->id }}')" class="secondary-button release-status-action release-status-action--check">
-                                        <span wire:loading.remove wire:target="checkSoundOnStatus('{{ $job->id }}')">Cek Status SoundOn</span>
-                                        <span wire:loading wire:target="checkSoundOnStatus('{{ $job->id }}')">Mengantrekan...</span>
-                                    </button>
+                                    @if(in_array($job->soundfresh_workflow_status, ['under_review', 'uploading'], true))
+                                        <button type="button" wire:click="checkSoundOnStatus('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="checkSoundOnStatus('{{ $job->id }}')" class="secondary-button release-status-action release-status-action--check">
+                                            <span wire:loading.remove wire:target="checkSoundOnStatus('{{ $job->id }}')">Cek Status SoundOn</span>
+                                            <span wire:loading wire:target="checkSoundOnStatus('{{ $job->id }}')">Mengantrekan...</span>
+                                        </button>
+                                    @endif
                                     @if($soundOnStatus === 'not_approved' && $verifyStatus === 'rejected')
                                         <button type="button" class="secondary-button release-status-action release-status-action--success" disabled aria-disabled="true">Rejected di Soundfresh</button>
                                     @elseif($soundOnStatus === 'not_approved' && $verifyStatus === 'rejecting')

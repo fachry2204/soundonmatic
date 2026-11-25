@@ -35,14 +35,16 @@ const draftIdFromUrl = (value: string): string | null => {
 };
 
 async function searchDraftList(page: Page, title: string): Promise<boolean> {
-    let search = page
-        .getByPlaceholder(/search|cari|find release/i)
-        .filter({ visible: true })
-        .first();
-    if (!(await search.count())) {
+    const deadline = Date.now() + 15_000;
+    let search = page.getByPlaceholder(/search|cari|find release/i).filter({ visible: true }).first();
+    while (!(await search.count())) {
         search = page.getByRole("textbox").filter({ visible: true }).first();
+        if (await search.count()) break;
+        if (typeof page.waitForTimeout !== 'function' || Date.now() >= deadline) return false;
+        if (/\/login|sign-in/i.test(page.url())) throw new Error('AUTH_SESSION_EXPIRED');
+        await page.waitForTimeout(250);
+        search = page.getByPlaceholder(/search|cari|find release/i).filter({ visible: true }).first();
     }
-    if (!(await search.count())) return false;
 
     await search.fill(title);
     await search.press("Enter").catch(() => undefined);

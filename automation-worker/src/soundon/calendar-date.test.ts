@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { chromium } from 'playwright';
-import { selectCalendarDate, setScopedTime, setTikTokPreRelease } from './draft-driver.js';
+import { continueWithCurrentReleaseDate, selectCalendarDate, setScopedTime, setTikTokPreRelease } from './draft-driver.js';
 
 describe('SoundOn calendar selection', () => {
+    it('dismisses a release-date warning before opening the calendar', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div class="semi-input-wrapper" onclick="document.querySelector('.semi-datepicker').hidden=false"><input readonly></div>
+                <div class="semi-datepicker" hidden><div class="semi-datepicker-navigation-month">Dec 2026</div>
+                <div class="semi-datepicker-day" title="2026-12-08" onclick="document.querySelector('input').value='2026-12-08';this.parentElement.hidden=true">8</div></div>
+                <div role="dialog" style="position:fixed;inset:0;background:white"><h2>Release Date Too Soon</h2>
+                <button onclick="this.parentElement.remove()">No, continue with this date</button></div>`);
+            await continueWithCurrentReleaseDate(page);
+            expect(await selectCalendarDate(page.locator('input'), '2026-12-08')).toBe(true);
+            expect(await page.locator('input').inputValue()).toBe('2026-12-08');
+        } finally { await browser.close(); }
+    }, 15000);
     it('persists TikTok date and time with a readonly wrapper without changing another card', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

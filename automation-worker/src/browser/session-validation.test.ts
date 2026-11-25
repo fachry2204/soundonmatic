@@ -1,9 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chromium, type Page } from 'playwright';
-import { dismissSoundOnTwoStepPrompt, sessionStateOnPage } from './session-validation.js';
+import { dismissSoundOnTwoStepPrompt, sessionStateOnPage, waitForSessionStateOnPage } from './session-validation.js';
 import { closeContext, handleOptionalSoundOnPrompt, sessionContext } from './context-manager.js';
 
 describe('SoundOn optional two-step setup', () => {
+    it('waits for a delayed login form before deciding whether to refresh the session', async () => {
+        const browser = await chromium.launch({ headless: true });
+        try {
+            const page = await browser.newPage();
+            await page.route('https://www.soundon.global/**', route => route.fulfill({ contentType: 'text/html', body: `<div>Loading...</div><script>setTimeout(() => document.body.innerHTML = '<input type="password" placeholder="Password">', 400)</script>` }));
+            await page.goto('https://www.soundon.global/login');
+            expect(await sessionStateOnPage(page, 'soundon')).toBe('unknown');
+            expect(await waitForSessionStateOnPage(page, 'soundon', 3000)).toBe('expired');
+            await page.setContent('<div>Temporarily unavailable</div>');
+            expect(await waitForSessionStateOnPage(page, 'soundon', 300)).toBe('unknown');
+        } finally { await browser.close(); }
+    }, 10000);
     it('handles errors from detached async popup handlers without terminating the worker', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         try {

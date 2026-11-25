@@ -21,7 +21,19 @@ final class SessionHealthCommand extends Command
         $failed = false;
         foreach (AutomationAccount::whereNotNull('session_state_encrypted')->get() as $account) {
             try {
-                $valid = ($worker->validateSession($account->platform->value, $account->session_state_encrypted)['valid'] ?? false) === true;
+                $result = $worker->validateSession($account->platform->value, $account->session_state_encrypted);
+                $valid = ($result['valid'] ?? false) === true;
+                if (! $valid && ($result['status'] ?? null) === 'manual_auth') {
+                    $account->update(['status' => 'manual_auth_required']);
+                    $this->error($account->platform->value.': manual authentication required');
+                    $failed = true;
+                    continue;
+                }
+                if (! $valid && ($result['status'] ?? null) !== 'expired') {
+                    $this->error($account->platform->value.': session status could not be confirmed');
+                    $failed = true;
+                    continue;
+                }
                 $account->update(['status' => $valid ? 'active' : 'expired']);
                 if (! $valid) {
                     $notifier->send('session_expired', 'Cached platform session has expired.', errorCode: 'AUTH_SESSION_EXPIRED');

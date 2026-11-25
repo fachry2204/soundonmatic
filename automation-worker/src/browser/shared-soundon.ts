@@ -10,6 +10,13 @@ let leases = 0;
 let lock: Promise<void> = Promise.resolve();
 export const soundOnSessionInUse = (): boolean => leases > 0;
 
+/** Remember every snapshot returned to PHP, including intermediate rotations. */
+export async function captureSessionState(browser: BrowserContext): Promise<Awaited<ReturnType<BrowserContext['storageState']>>> {
+    const state = await browser.storageState({ indexedDB: true });
+    if (browser === shared) identities.add(fingerprint(state));
+    return state;
+}
+
 /** Explicit login/shutdown may discard an idle profile, never an active one. */
 export async function closeIdleSoundOnContext(): Promise<boolean> {
     const previous = lock;

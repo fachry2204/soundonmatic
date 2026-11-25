@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { locate, readField, valueAt } from "../selectors/registry.js";
 import { assertDraftOnly } from "../guards/draft-only.js";
 import { findDraft } from "./draft-finder.js";
+import { navigateToReadPage } from '../browser/navigation.js';
 import { orderedAlbumTracks, assertAlbumOrder } from "./album-order.js";
 import { confirmAlbumDraft } from './album-draft-confirmation.js';
 const forbidden = /submit|publish|distribute|send for review|release now/i;
@@ -137,7 +138,6 @@ async function createKnownSoundOnDraft(page, metadata) {
     const tracks = Array.isArray(metadata.tracks) ? metadata.tracks : [];
     if (tracks.length === 0)
         throw new Error("METADATA_MISSING:tracks");
-    const soundOnPreReleaseDate = resolveSoundOnPreReleaseDate(metadata.pre_release_date, metadata.release_date);
     if (tracks.length > 1)
         return createKnownSoundOnAlbumDraft(page, metadata, tracks);
     await openSingleReleaseForm(page);
@@ -201,6 +201,7 @@ async function createKnownSoundOnDraft(page, metadata) {
         if (!originalDateSet)
             throw new Error("SOUNDON_UI_CHANGED:field:Original release date");
     }
+    await continueWithCurrentReleaseDate(page);
     let releaseDateSet = await setTextIfPresent(page, ["Release date", "Planned release date"], normalizeDate(metadata.release_date));
     if (!track.instrumental && track.lyrics)
         await setTextField(page, "Lyrics", String(track.lyrics));
@@ -249,6 +250,7 @@ async function createKnownSoundOnDraft(page, metadata) {
             ], track.explicit ? "Explicit" : "Non-Explicit");
         }
         if (!releaseDateSet) {
+            await continueWithCurrentReleaseDate(page);
             releaseDateSet = await setTextIfPresent(page, ["Release date", "Planned release date"], normalizeDate(metadata.release_date));
         }
     }
@@ -262,7 +264,7 @@ async function createKnownSoundOnDraft(page, metadata) {
     // modal. It overlays the TikTok and publishing controls, so acknowledge it
     // before attempting any subsequent field interaction.
     await continueWithCurrentReleaseDate(page);
-    await setTikTokPreRelease(page, soundOnPreReleaseDate);
+    await setTikTokPreRelease(page, "");
     await advanceWizardStep(page);
     const moreReleaseOptions = page
         .getByText("More release options", { exact: true })
@@ -294,7 +296,7 @@ async function createKnownSoundOnDraft(page, metadata) {
     await setPublisherField(page, "Soundfresh.ID");
     await setScopedRadio(page, "What percentage of this track was written or composed by you?", "100%");
     await setScopedRadio(page, "Does this track have an existing publishing administrator or publisher?", "No");
-    await enableStandardMonetization(page, soundOnPreReleaseDate);
+    await enableStandardMonetization(page, "");
     await advanceWizardStep(page);
     // SoundOn warns when the source planned date is far in the future. Preserve
     // the Soundfresh date by choosing the explicit "continue with this date"
@@ -324,9 +326,7 @@ async function createKnownSoundOnDraft(page, metadata) {
         currentUrl.pathname.match(/(?:draft|release)\/([^/]+)$/i)?.[1] ?? null;
     if (draftId)
         return { draft_id: draftId, draft_url: page.url() };
-    await page.goto("https://www.soundon.global/library/list?type=draft", {
-        waitUntil: "domcontentloaded",
-    });
+    await navigateToReadPage(page, "https://www.soundon.global/library/list?type=draft");
     await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
     const confirmed = await findDraft(page, String(metadata.title ?? track.title ?? ""), String(metadata.primary_artist ?? track.primary_artist ?? ""));
     if (!confirmed)
@@ -478,7 +478,7 @@ async function createKnownSoundOnAlbumDraft(page, metadata, tracks) {
     if (releaseDate && !releaseDateSet)
         throw new Error("SOUNDON_UI_CHANGED:field:Release date");
     await continueWithCurrentReleaseDate(page);
-    await setTikTokPreRelease(page, resolveSoundOnPreReleaseDate(metadata.pre_release_date, metadata.release_date));
+    await setTikTokPreRelease(page, "");
     await advanceWizardStep(page);
     const more = page.getByText("More release options", { exact: true }).filter({ visible: true }).first();
     if (await more.count())
@@ -487,7 +487,7 @@ async function createKnownSoundOnAlbumDraft(page, metadata, tracks) {
     await setPublisherField(page, "Soundfresh.ID", true);
     await setRadioIfPresent(page, ["What percentage of this track was written or composed by you?"], "100%");
     await setScopedRadio(page, "Does this track have an existing publishing administrator or publisher?", "No");
-    await enableStandardMonetization(page, resolveSoundOnPreReleaseDate(metadata.pre_release_date, metadata.release_date), true);
+    await enableStandardMonetization(page, "", true);
     // Some EP/Album forms finish directly on the publishing-rights page and
     // do not render the separate Single-only monetization step.
     if (!(await page.getByRole("button", { name: "Save to my drafts", exact: true }).filter({ visible: true }).count())) {
@@ -500,7 +500,7 @@ async function createKnownSoundOnAlbumDraft(page, metadata, tracks) {
     await resilientClick(save.last());
     await page.waitForTimeout(3_000);
     await assertNoValidationErrors(page, 10_000);
-    await page.goto("https://www.soundon.global/library/list?type=draft", { waitUntil: "domcontentloaded" });
+    await navigateToReadPage(page, "https://www.soundon.global/library/list?type=draft");
     // domcontentloaded only means the SPA shell is loaded. Searching before
     // its release list renders returns a false negative on a blank spinner.
     await page.getByText(/^Drafts?(?:\s+\d+)?$/i, { exact: true }).filter({ visible: true }).first()
@@ -539,7 +539,7 @@ export async function selectAlbumTrack(page, filename) {
     }
     await target.scrollIntoViewIfNeeded();
 }
-async function continueWithCurrentReleaseDate(page) {
+export async function continueWithCurrentReleaseDate(page) {
     const warning = page
         .getByText(/^Release Date Too (?:Soon|Far Away)$/i, { exact: true })
         .filter({ visible: true });
@@ -2832,42 +2832,23 @@ export function normalizeArtistMetadata(value) {
         .replace(/\s+/g, " ")
         .trim();
 }
-export function resolveSoundOnPreReleaseDate(preReleaseValue, releaseValue, todayValue = new Date()) {
-    let preReleaseDate = normalizeDate(preReleaseValue);
+export function resolveSoundOnPreReleaseDate(releaseValue, todayValue = new Date()) {
     const releaseDate = normalizeDate(releaseValue);
     if (!releaseDate)
         return "";
-    // Several Soundfresh layouts omit the pre-release table value even though
-    // the release should receive the standard schedule. Use seven days before
-    // the planned release as the deterministic fallback.
-    if (!preReleaseDate) {
-        const fallback = new Date(`${releaseDate}T00:00:00Z`);
-        if (Number.isNaN(fallback.getTime()))
-            return "";
-        fallback.setUTCDate(fallback.getUTCDate() - 7);
-        preReleaseDate = normalizeDate(fallback);
-    }
     const release = new Date(`${releaseDate}T00:00:00Z`);
-    const preRelease = new Date(`${preReleaseDate}T00:00:00Z`);
+    if (Number.isNaN(release.getTime()))
+        return "";
+    const preRelease = new Date(release.getTime() - 7 * 86_400_000);
     const todayDate = normalizeDate(todayValue);
     const today = new Date(`${todayDate}T00:00:00Z`);
     if (Number.isNaN(release.getTime()) ||
         Number.isNaN(preRelease.getTime()) ||
         Number.isNaN(today.getTime()))
         return "";
-    // SoundOn recommends at least seven full days between TikTok pre-release
-    // and the official release. A closer date opens a blocking warning; skip
-    // this optional feature instead of failing the entire draft.
-    if (preRelease > release)
-        return "";
-    const daysBeforeRelease = (release.getTime() - preRelease.getTime()) / 86_400_000;
-    if (daysBeforeRelease < 7)
-        return "";
-    // Also keep optional pre-release disabled for elapsed dates. This guards
-    // malformed/source values without blocking the main draft creation.
     if (preRelease <= today)
         return "";
-    return preReleaseDate;
+    return normalizeDate(preRelease);
 }
 export function writerFieldEntries(value) {
     const entries = contributorEntries(value, "Songwriter");

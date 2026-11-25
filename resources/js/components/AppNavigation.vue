@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
     currentPath: String,
@@ -19,7 +19,6 @@ const props = defineProps({
     csrfToken: String,
 });
 
-const open = ref(false);
 const items = computed(() => [
     { label: 'Dashboard', href: props.dashboardUrl, icon: 'grid', show: props.canViewDashboard },
     { label: 'Cek Status Rilis', href: props.releaseStatusUrl, icon: 'status', show: true },
@@ -50,24 +49,14 @@ const logout = async () => {
 </script>
 
 <template>
-    <div class="mobile-app-bar">
-        <a :href="dashboardUrl" class="brand brand--mobile" aria-label="SoundMatic Dashboard">
-            <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
-            <strong>SoundMatic</strong>
-        </a>
-        <button class="mobile-toggle" type="button" :aria-expanded="open" aria-controls="primary-navigation" aria-label="Buka navigasi" @click="open = !open">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
-        </button>
-    </div>
-    <button v-if="open" class="sidebar-scrim" type="button" aria-label="Tutup navigasi" @click="open = false"></button>
-    <aside :class="['app-sidebar', { 'app-sidebar--open': open }]">
-        <a :href="dashboardUrl" class="brand brand--sidebar" aria-label="SoundMatic Dashboard">
+    <header class="top-navigation">
+        <a :href="dashboardUrl" class="brand top-navigation__brand" aria-label="SoundMatic Dashboard">
             <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
             <span><strong>SoundMatic</strong><small>Release Automation</small></span>
         </a>
 
-        <nav id="primary-navigation" class="primary-nav" aria-label="Navigasi utama">
-            <a v-for="item in items" :key="item.href" :href="item.href" :aria-current="isActive(item.href) ? 'page' : undefined" :class="['nav-item', { 'nav-item--active': isActive(item.href) }]" @click="open = false">
+        <nav id="primary-navigation" class="top-navigation__links" aria-label="Navigasi utama">
+            <a v-for="item in items" :key="item.href" :href="item.href" :aria-current="isActive(item.href) ? 'page' : undefined" :class="['nav-item', { 'nav-item--active': isActive(item.href) }]">
                 <svg v-if="item.icon === 'grid'" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
                 <svg v-else-if="item.icon === 'status'" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M17 15l1.5 1.5L21 14"/></svg>
                 <svg v-else-if="item.icon === 'users'" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
@@ -78,12 +67,12 @@ const logout = async () => {
             </a>
         </nav>
 
-        <div class="sidebar-user">
+        <div class="top-navigation__user">
             <span class="user-avatar">{{ userName?.charAt(0).toUpperCase() }}</span>
             <span class="user-copy"><strong>{{ userName }}</strong><small>{{ userRole }}</small></span>
             <button type="button" class="logout-button" aria-label="Keluar dari SoundMatic" title="Keluar" @click="logout">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4"/></svg>
             </button>
         </div>
-    </aside>
+    </header>
 </template>

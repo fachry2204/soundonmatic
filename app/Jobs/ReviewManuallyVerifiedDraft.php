@@ -14,7 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
 
-/** Operator has compared the draft manually; never creates a new draft. */
+/** Recheck a matching SoundOn release before changing Soundfresh status. */
 final class ReviewManuallyVerifiedDraft implements ShouldQueue
 {
     use Queueable;
@@ -33,12 +33,28 @@ final class ReviewManuallyVerifiedDraft implements ShouldQueue
         if ($job->error_code !== 'DRAFT_MANUAL_REVIEW_PENDING') return;
 
         try {
+            if (! in_array($job->soundfresh_workflow_status, [null, 'pending'], true)) {
+                throw new \RuntimeException('Rilisan Soundfresh tidak lagi berstatus Pending.');
+            }
             $soundon = $sessions->ensure(Platform::SoundOn);
             if ($soundon->status === 'manual_auth_required') throw new \RuntimeException('Sesi SoundOn memerlukan login ulang.');
             $draft = $worker->findDraft((string) $job->release_title, (string) $job->artist_name, $soundon->session_state_encrypted);
+            $release = null;
+            if ($draft === null) {
+                $matches = $worker->releaseDuplicates([[
+                    'key' => (string) $job->id, 'title' => (string) $job->release_title, 'artist' => (string) $job->artist_name,
+                ]], $soundon->fresh()->session_state_encrypted);
+                $release = $matches[(string) $job->id] ?? null;
+                if (is_array($release) && ($release['found'] ?? false) === true) {
+                    $query = [];
+                    parse_str((string) parse_url((string) ($release['release_url'] ?? ''), PHP_URL_QUERY), $query);
+                    $reference = $release['release_id'] ?? $query['id'] ?? $query['release_id'] ?? null;
+                    $draft = ['draft_id' => is_scalar($reference) ? (string) $reference : '', 'draft_url' => $release['release_url'] ?? null];
+                }
+            }
             $draftId = (string) ($draft['draft_id'] ?? '');
             if (! preg_match('/^\d{10,}$/', $draftId)) {
-                throw new \RuntimeException('Draft dengan judul dan artis tersebut tidak ditemukan dengan ID SoundOn yang dapat dikenali.');
+                throw new \RuntimeException('Rilisan dengan judul dan artis tersebut tidak ditemukan dengan ID SoundOn yang dapat dikenali.');
             }
             $soundfresh = $sessions->ensure(Platform::Soundfresh);
             if ($soundfresh->status === 'manual_auth_required') throw new \RuntimeException('Sesi Soundfresh memerlukan login ulang.');
@@ -50,9 +66,10 @@ final class ReviewManuallyVerifiedDraft implements ShouldQueue
                 'soundon_draft_id' => $draftId,
                 'soundon_draft_url' => $draft['draft_url'] ?? null,
                 'soundon_draft_status' => 'already_exists',
+                'soundon_release_status' => $release['status'] ?? $job->soundon_release_status,
                 'soundfresh_workflow_status' => 'under_review',
                 'error_code' => null, 'error_message' => null,
-                'progress_label' => 'Draft yang diperiksa operator — Soundfresh Under Review',
+                'progress_label' => 'Rilisan ditemukan di SoundOn — Soundfresh Under Review',
                 'progress_percent' => 100, 'finished_at' => now(), 'progress_updated_at' => now(),
             ]);
         } catch (Throwable $exception) {

@@ -4,6 +4,7 @@ import type { Registry } from "../selectors/registry.js";
 import { locate, readField, valueAt } from "../selectors/registry.js";
 import { assertDraftOnly } from "../guards/draft-only.js";
 import { findDraft } from "./draft-finder.js";
+import { navigateToReadPage } from '../browser/navigation.js';
 import { orderedAlbumTracks, assertAlbumOrder } from "./album-order.js";
 import { confirmAlbumDraft } from './album-draft-confirmation.js';
 
@@ -300,6 +301,7 @@ async function createKnownSoundOnDraft(
         if (!originalDateSet)
             throw new Error("SOUNDON_UI_CHANGED:field:Original release date");
     }
+    await continueWithCurrentReleaseDate(page);
     let releaseDateSet = await setTextIfPresent(
         page,
         ["Release date", "Planned release date"],
@@ -360,6 +362,7 @@ async function createKnownSoundOnDraft(
             );
         }
         if (!releaseDateSet) {
+            await continueWithCurrentReleaseDate(page);
             releaseDateSet = await setTextIfPresent(
                 page,
                 ["Release date", "Planned release date"],
@@ -461,9 +464,7 @@ async function createKnownSoundOnDraft(
 
     if (draftId) return { draft_id: draftId, draft_url: page.url() };
 
-    await page.goto("https://www.soundon.global/library/list?type=draft", {
-        waitUntil: "domcontentloaded",
-    });
+    await navigateToReadPage(page, "https://www.soundon.global/library/list?type=draft");
     await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
     const confirmed = await findDraft(
         page,
@@ -654,7 +655,7 @@ async function createKnownSoundOnAlbumDraft(
     await resilientClick(save.last());
     await page.waitForTimeout(3_000);
     await assertNoValidationErrors(page, 10_000);
-    await page.goto("https://www.soundon.global/library/list?type=draft", { waitUntil: "domcontentloaded" });
+    await navigateToReadPage(page, "https://www.soundon.global/library/list?type=draft");
     // domcontentloaded only means the SPA shell is loaded. Searching before
     // its release list renders returns a false negative on a blank spinner.
     await page.getByText(/^Drafts?(?:\s+\d+)?$/i, { exact: true }).filter({ visible: true }).first()
@@ -693,7 +694,7 @@ export async function selectAlbumTrack(page: Page, filename: string): Promise<vo
     await target.scrollIntoViewIfNeeded();
 }
 
-async function continueWithCurrentReleaseDate(page: Page): Promise<void> {
+export async function continueWithCurrentReleaseDate(page: Page): Promise<void> {
     const warning = page
         .getByText(/^Release Date Too (?:Soon|Far Away)$/i, { exact: true })
         .filter({ visible: true });

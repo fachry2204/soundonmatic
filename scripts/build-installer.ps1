@@ -1,18 +1,39 @@
 param(
-    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.100.exe'),
-    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.100'),
-    [string]$WorkerDistDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation-worker\dist')
+    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.101.exe'),
+    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.101'),
+    [string]$WorkerDistDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation-worker\dist'),
+    [string]$StageDirectory = (Join-Path $PSScriptRoot 'installer\stage')
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$stage = Join-Path $PSScriptRoot 'installer\stage'
+$stage = $StageDirectory
 $installer = Join-Path $PSScriptRoot 'installer'
 $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
 $sevenZipLibrary = 'C:\Program Files\7-Zip\7z.dll'
 if (!(Test-Path $sevenZip) -or !(Test-Path $sevenZipLibrary)) { throw '7-Zip beserta 7z.dll diperlukan untuk membuat installer.' }
 
+# Always package the current frontend and worker sources, not an earlier build.
+Push-Location $root
+try {
+    & npm.cmd run build
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+    if (! $PSBoundParameters.ContainsKey('WorkerDistDirectory')) {
+        Push-Location (Join-Path $root 'automation-worker')
+        try {
+            # A running Node worker can keep files in dist busy on Windows.
+            # Compile into a fresh directory so packaging never rewrites them.
+            $WorkerDistDirectory = Join-Path $root ('automation-worker\storage\installer-builds\' + [guid]::NewGuid().ToString('N'))
+            & npm.cmd run build -- --outDir $WorkerDistDirectory
+            if ($LASTEXITCODE -ne 0) { throw 'Automation worker build failed.' }
+        } finally { Pop-Location }
+    }
+} finally { Pop-Location }
+if (!(Test-Path -LiteralPath (Join-Path $WorkerDistDirectory 'server.js'))) { throw 'Automation worker server.js was not created.' }
+if (!(Test-Path -LiteralPath (Join-Path $root 'public\build\manifest.json'))) { throw 'Frontend manifest was not created.' }
+
 $launcherProject = Join-Path $PSScriptRoot 'desktop\SoundOnMatic.Desktop.csproj'
-$launcherPublishDirectory = Join-Path $PSScriptRoot 'desktop\bin\publish'
+# Publish separately because a running desktop app can lock its executable.
+$launcherPublishDirectory = Join-Path $PSScriptRoot ('desktop\bin\installer-builds\' + [guid]::NewGuid().ToString('N'))
 dotnet publish $launcherProject -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $launcherPublishDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Desktop launcher build failed.' }
 $launcherExe = Join-Path $launcherPublishDirectory 'SoundMatic.exe'
@@ -45,6 +66,8 @@ $workerStage = Join-Path $stage 'automation-worker'; New-Item $workerStage -Item
 foreach ($dir in @('config','node_modules')) { Copy-Item (Join-Path $root "automation-worker\$dir") $workerStage -Recurse -Force }
 if (!(Test-Path -LiteralPath $WorkerDistDirectory)) { throw "Automation worker distribution not found: $WorkerDistDirectory" }
 Copy-Item -LiteralPath $WorkerDistDirectory -Destination (Join-Path $workerStage 'dist') -Recurse -Force
+# Compiled tests are development artifacts.
+Get-ChildItem -LiteralPath (Join-Path $workerStage 'dist') -Recurse -File -Filter '*.test.js' | Remove-Item -Force
 Copy-Item (Join-Path $root 'automation-worker\.env.install') $workerStage
 Copy-Item (Join-Path $root 'automation-worker\package.json') $workerStage
 
@@ -67,6 +90,8 @@ Copy-Item (Join-Path $ffmpegBin.FullName 'ffmpeg.exe') $mediaStage
 Copy-Item (Join-Path $ffmpegBin.FullName 'ffprobe.exe') $mediaStage
 
 foreach ($dir in @('storage\logs','storage\framework\cache','storage\framework\sessions','storage\framework\views','storage\app\private','bootstrap\cache','database')) { New-Item (Join-Path $stage $dir) -ItemType Directory -Force | Out-Null }
+# Machine-specific config/routes must be regenerated on the installed machine.
+Get-ChildItem -LiteralPath (Join-Path $stage 'bootstrap\cache') -File -Filter '*.php' | Remove-Item -Force
 # Database state is local user data, never application payload. In particular,
 # a copied WAL file without its matching database makes a first installation
 # appear corrupt before Laravel can create its schema.
@@ -76,6 +101,7 @@ Get-ChildItem -LiteralPath $stageDatabase -File -Filter 'database.sqlite*' | Rem
 $payload = Join-Path $installer 'payload.7z'
 if (Test-Path $payload) { Remove-Item $payload -Force }
 & $sevenZip a -t7z -mx=5 -mmt=on $payload (Join-Path $stage '*') | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'Installer payload compression failed.' }
 Copy-Item $sevenZip (Join-Path $installer '7z.exe') -Force
 Copy-Item $sevenZipLibrary (Join-Path $installer '7z.dll') -Force
 dotnet publish (Join-Path $installer 'SoundOnMatic.Installer.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $PublishDirectory

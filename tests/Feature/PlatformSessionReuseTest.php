@@ -84,6 +84,50 @@ final class PlatformSessionReuseTest extends TestCase
         $this->assertSame('old', $account->fresh()->session_state_encrypted['cookies'][0]['name']);
     }
 
+    public function test_structured_login_rejection_is_reported_as_invalid_credentials(): void
+    {
+        $account = $this->account();
+        Http::fake([
+            '*/v1/sessions/validate' => Http::response(['success' => true, 'data' => ['valid' => false, 'status' => 'expired']]),
+            '*/v1/sessions/login' => Http::response(['success' => false, 'error' => 'AUTH_INVALID_CREDENTIALS'], 401),
+        ]);
+
+        try {
+            app(SessionManager::class)->ensure(Platform::SoundOn);
+            $this->fail('Expected rejected credentials');
+        } catch (BrowserWorkerException $error) {
+            $this->assertSame('invalid_credentials', $error->reason);
+        }
+
+        $this->assertSame('authentication_failed', $account->fresh()->status);
+        $this->assertSame('old', $account->fresh()->session_state_encrypted['cookies'][0]['name']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_health_check_preserves_an_unconfirmed_session(): void
+    {
+        $account = $this->account();
+        Http::fake(['*/v1/sessions/validate' => Http::response(['success' => true, 'data' => ['valid' => false, 'status' => 'unknown']])]);
+
+        $this->artisan('soundon:session:health')->assertFailed();
+
+        $this->assertSame('active', $account->fresh()->status);
+        $this->assertSame('old', $account->fresh()->session_state_encrypted['cookies'][0]['name']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_health_check_distinguishes_manual_authentication_from_expiration(): void
+    {
+        $account = $this->account();
+        Http::fake(['*/v1/sessions/validate' => Http::response(['success' => true, 'data' => ['valid' => false, 'status' => 'manual_auth']])]);
+
+        $this->artisan('soundon:session:health')->assertFailed();
+
+        $this->assertSame('manual_auth_required', $account->fresh()->status);
+        $this->assertSame('old', $account->fresh()->session_state_encrypted['cookies'][0]['name']);
+        Http::assertSentCount(1);
+    }
+
     public function test_soundfresh_success_refreshes_cookies_without_overwriting_newer_session(): void
     {
         $old = ['cookies' => [['name' => 'old', 'value' => 'secret']]];

@@ -42,3 +42,13 @@ export async function sessionStateOnPage(page, platform) {
     // A login URL without its form can be a loading/error/intermediate page.
     return 'unknown';
 }
+/** SPA login forms can render after navigation and the initial loading screen. */
+export async function waitForSessionStateOnPage(page, platform, timeoutMs = 15_000) {
+    const deadline = Date.now() + timeoutMs;
+    let status = await sessionStateOnPage(page, platform);
+    while (status === 'unknown' && Date.now() < deadline) {
+        await page.waitForTimeout(Math.min(250, Math.max(1, deadline - Date.now())));
+        status = await sessionStateOnPage(page, platform);
+    }
+    return status;
+}
