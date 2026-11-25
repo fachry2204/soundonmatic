@@ -4,9 +4,10 @@
     <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
     <AssemblyName>SoundMatic</AssemblyName><RootNamespace>SoundMatic.Desktop</RootNamespace>
     <ApplicationIcon>..\assets\soundmatic-icon.ico</ApplicationIcon><Product>SoundMatic</Product><Title>SoundMatic</Title><Company>Soundfresh.ID</Company>
-    <Version>1.1.101</Version><AssemblyVersion>1.1.101.0</AssemblyVersion><FileVersion>1.1.101.0</FileVersion><InformationalVersion>1.1.101</InformationalVersion>
+    <Version>1.1.102</Version><AssemblyVersion>1.1.102.0</AssemblyVersion><FileVersion>1.1.102.0</FileVersion><InformationalVersion>1.1.102</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\shared\ErrorData.cs" Link="ErrorData.cs" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>

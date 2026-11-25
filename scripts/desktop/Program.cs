@@ -17,6 +17,8 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         var root = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+            SoundMatic.Diagnostics.ErrorData.Write(root, "system", eventArgs.ExceptionObject.ToString() ?? "Unhandled desktop error");
         if (args.Contains("--check")) { Environment.ExitCode = Required(root) ? 0 : 2; return; }
         using var instance = new Mutex(true, @"Local\SoundMatic.Desktop.Singleton", out var isFirstInstance);
         if (!isFirstInstance)
@@ -113,6 +115,7 @@ internal static class Program
             }
             catch (Exception e)
             {
+                SoundMatic.Diagnostics.ErrorData.Write(root, "system", e.ToString());
                 status.Text = "SoundMatic gagal dijalankan.\n\n" + e.Message;
                 File.WriteAllText(Path.Combine(root, "storage", "logs", "launcher-error.log"), e.ToString());
                 MessageBox.Show(e.Message, "SoundMatic", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -422,7 +425,11 @@ internal static class Program
             var errorPath = Path.Combine(logs, $"launcher-{name}-error.log");
             var process = new Process { StartInfo = info, EnableRaisingEvents = true };
             process.OutputDataReceived += (_, eventArgs) => AppendLogLine(outputPath, eventArgs.Data);
-            process.ErrorDataReceived += (_, eventArgs) => AppendLogLine(errorPath, eventArgs.Data);
+            process.ErrorDataReceived += (_, eventArgs) => {
+                AppendLogLine(errorPath, eventArgs.Data);
+                if (!string.IsNullOrWhiteSpace(eventArgs.Data))
+                    SoundMatic.Diagnostics.ErrorData.Write(root, name == "worker" ? "browser" : "system", $"[{name}] {eventArgs.Data}");
+            };
             if (!process.Start()) throw new InvalidOperationException($"Layanan {name} gagal dimulai.");
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();

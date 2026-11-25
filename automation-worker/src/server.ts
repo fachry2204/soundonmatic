@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { registerErrorDiagnostics, writeBrowserError } from './diagnostics.js';
 import { verifyRequest } from "./security.js";
 import { closeContext, context, sessionContext } from "./browser/context-manager.js";
 import { navigateToReadPage } from './browser/navigation.js';
@@ -34,6 +35,7 @@ const app = Fastify({
         ],
     },
 });
+registerErrorDiagnostics(app);
 const jobs = new Map<
     string,
     { status: string; cancelled: boolean; updatedAt: string }
@@ -1614,4 +1616,8 @@ async function screenshot(page: any, prefix: string): Promise<string> {
     await page.screenshot({ path, fullPage: true });
     return path;
 }
-app.listen({ host: "127.0.0.1", port: Number(process.env.PORT ?? 3100) });
+app.listen({ host: "127.0.0.1", port: Number(process.env.PORT ?? 3100) }).catch(error => {
+    writeBrowserError(error.message, { stack: error.stack });
+    app.log.error(error);
+    process.exitCode = 1;
+});

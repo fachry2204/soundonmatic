@@ -140,6 +140,7 @@ internal static class Program
 
         private static void Log(string message)
         {
+            SoundMatic.Diagnostics.ErrorData.Write(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "SoundMatic"), "instalasi", message);
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(InstallerLogPath)!);

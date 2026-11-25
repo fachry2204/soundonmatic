@@ -1,4 +1,5 @@
 *.log
+/data error/
 .DS_Store
 .env
 /storage/app/automation/sessions/*

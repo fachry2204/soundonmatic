@@ -1,6 +1,6 @@
 param(
-    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.101.exe'),
-    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.101'),
+    [string]$Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'SoundMatic-Setup-v1.1.102.exe'),
+    [string]$PublishDirectory = (Join-Path $PSScriptRoot 'installer\bin\publish-v1.1.102'),
     [string]$WorkerDistDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation-worker\dist'),
     [string]$StageDirectory = (Join-Path $PSScriptRoot 'installer\stage')
 )
@@ -60,6 +60,10 @@ if (Test-Path -LiteralPath $hotFile) { Remove-Item -LiteralPath $hotFile -Force 
 Copy-Item (Join-Path $root 'artisan') $stage
 Copy-Item (Join-Path $root 'composer.json') $stage
 Copy-Item (Join-Path $root '.env.install') $stage
+$errorDataDirectory = Join-Path $stage 'data error'
+New-Item -Path $errorDataDirectory -ItemType Directory -Force | Out-Null
+# Only ship instructions; empty log files would overwrite existing error history.
+Copy-Item -LiteralPath (Join-Path $root 'resources\diagnostics\BACA SAYA.txt') -Destination $errorDataDirectory
 Copy-Item $launcherExe (Join-Path $stage 'SoundMatic.exe')
 
 $workerStage = Join-Path $stage 'automation-worker'; New-Item $workerStage -ItemType Directory | Out-Null

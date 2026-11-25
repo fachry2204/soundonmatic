@@ -1,0 +1,20 @@
+DATA ERROR SOUNDMATIC
+
+Folder ini mengumpulkan error otomatis. Jika terjadi masalah, kirim seluruh
+folder ini sebagai ZIP, atau kirim file sesuai masalahnya. Sertakan waktu
+kejadian dan tindakan terakhir yang dilakukan; screenshot tidak wajib.
+
+error system.log       : error aplikasi/PHP dan kegagalan layanan lokal
+error upload rilis.log : pengambilan metadata, pembuatan draft, dan upload
+error cek status.log   : pemeriksaan SoundOn dan pengiriman UPC/ISRC
+error akun.log         : login dan sesi SoundOn/Soundfresh
+error browser.log      : browser worker dan WebView2
+error instalasi.log    : instalasi dan pembaruan EXE
+error lainnya.log      : kegagalan antrean/proses lain
+
+Setiap baris adalah satu catatan JSON: waktu, versi, sumber, pesan, dan
+identitas rilisan bila tersedia. File kosong berarti belum ada error tercatat.
+File .1, .2, .3 berisi riwayat sebelumnya; sertakan juga saat mengirim ZIP.
+Ukuran setiap log dibatasi sekitar 5 MB dengan tiga salinan riwayat.
+Password, token, dan cookie disamarkan. Database, .env, dan sesi browser
+tidak dimasukkan ke folder ini. Folder ini tetap dipertahankan saat update.
