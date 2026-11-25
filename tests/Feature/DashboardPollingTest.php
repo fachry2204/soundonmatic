@@ -95,7 +95,7 @@ class DashboardPollingTest extends TestCase
         $run->update(['pending_found' => 1, 'summary_json' => ['pending_release_ids' => ['poll-test']]]);
         $screen->call('refreshMonitor')->assertSee('Rilisan Baru Otomatis')
             ->assertDontSee('Daftar akan tampil otomatis tanpa refresh.')
-            ->assertSeeHtml('wire:poll.2s.keep-alive="refreshMonitor"');
+            ->assertSeeHtml('wire:poll.10s.keep-alive="refreshMonitor"');
     }
 
     public function test_poll_closes_a_collected_run_after_duplicate_checks_finish(): void

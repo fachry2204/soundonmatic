@@ -57,7 +57,7 @@ final class AccountSessions extends Component
             try {
                 $this->emails[$account->platform->value] = (string) ($account->email_encrypted ?? '');
             } catch (DecryptException) {
-                $this->message = 'Credential lama tidak dapat dibaca setelah pemulihan database. Masukkan ulang email dan password Soundfresh serta SoundOn, lalu simpan dan login kembali.';
+                $this->message = 'Credential lama tidak dapat dibaca setelah pemulihan database. Masukkan ulang email dan password Soundfresh serta Aggregator, lalu simpan dan login kembali.';
             }
         }
         $this->refreshDownloadStats();
@@ -67,7 +67,7 @@ final class AccountSessions extends Component
     {
         Gate::authorize('sessions.manage');
         $enum = Platform::from($platform);
-        $account = AutomationAccount::firstOrCreate(['platform' => $enum], ['name' => $enum === Platform::Soundfresh ? 'Soundfresh' : 'SoundOn', 'status' => 'expired']);
+        $account = AutomationAccount::firstOrCreate(['platform' => $enum], ['name' => $enum === Platform::Soundfresh ? 'Soundfresh' : 'Aggregator', 'status' => 'expired']);
         try {
             $account->email_encrypted;
             $account->session_state_encrypted;

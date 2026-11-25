@@ -23,7 +23,7 @@ internal static class Program
         using var instance = new Mutex(true, @"Local\SoundMatic.Desktop.Singleton", out var isFirstInstance);
         if (!isFirstInstance)
         {
-            MessageBox.Show("SoundMatic sudah berjalan. Tutup jendela yang aktif sebelum membukanya kembali.", "SoundMatic", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Soundfresh sudah berjalan. Tutup jendela yang aktif sebelum membukanya kembali.", "Soundfresh", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         Application.Run(new MainWindow(root));
@@ -38,7 +38,7 @@ internal static class Program
     private sealed class MainWindow : Form
     {
         private readonly string root;
-        private readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "Menjalankan SoundMatic...", Font = new Font("Segoe UI", 12) };
+        private readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "Menjalankan Soundfresh...", Font = new Font("Segoe UI", 12) };
         private readonly WebView2 view = new() { Dock = DockStyle.Fill, Visible = false };
         private readonly System.Windows.Forms.Timer serviceMonitor = new() { Interval = 5000 };
         private readonly Dictionary<string, Process> ownedServices = new(StringComparer.OrdinalIgnoreCase);
@@ -50,7 +50,7 @@ internal static class Program
 
         public MainWindow(string root)
         {
-            this.root = root; Text = $"SoundMatic v{typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unknown"}"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
+            this.root = root; Text = $"Soundfresh v{typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unknown"}"; Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); Width = 1440; Height = 900; MinimumSize = new Size(1000, 680); StartPosition = FormStartPosition.CenterScreen;
             Controls.Add(view); Controls.Add(status); Shown += async (_, _) => await StartAsync();
             serviceMonitor.Tick += async (_, _) => await RecoverServicesAsync();
             FormClosing += ConfirmCloseAndStopServices;
@@ -60,11 +60,11 @@ internal static class Program
         {
             try
             {
-                if (!Required(root)) throw new InvalidOperationException("Instalasi SoundMatic tidak lengkap. Jalankan ulang installer SoundMatic Setup.");
+                if (!Required(root)) throw new InvalidOperationException("Instalasi Soundfresh tidak lengkap. Jalankan ulang installer Soundfresh Setup.");
                 Directory.CreateDirectory(Path.Combine(root, "storage", "logs"));
                 automationKey = Env(Path.Combine(root, "automation-worker", ".env"), "AUTOMATION_HMAC_KEY");
                 browserExecutable = FindBrowser();
-                if (string.IsNullOrWhiteSpace(browserExecutable)) throw new InvalidOperationException("Google Chrome atau Microsoft Edge tidak ditemukan. Instal salah satunya lalu buka kembali SoundMatic.");
+                if (string.IsNullOrWhiteSpace(browserExecutable)) throw new InvalidOperationException("Google Chrome atau Microsoft Edge tidak ditemukan. Instal salah satunya lalu buka kembali Soundfresh.");
                 if (string.IsNullOrWhiteSpace(automationKey)) automationKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Env(Path.Combine(root, ".env"), "APP_KEY") + "|soundonmatic-automation-hmac"))).ToLowerInvariant();
                 status.Text = "Membersihkan service lama...";
                 StopOwnedServices();
@@ -93,7 +93,7 @@ internal static class Program
                     }
                     catch (Exception error)
                     {
-                        MessageBox.Show("Installer update gagal dijalankan: " + error.Message, "SoundMatic", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show("Installer update gagal dijalankan: " + error.Message, "Soundfresh", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 };
                 view.CoreWebView2.NavigationStarting += (_, e) =>
@@ -116,9 +116,9 @@ internal static class Program
             catch (Exception e)
             {
                 SoundMatic.Diagnostics.ErrorData.Write(root, "system", e.ToString());
-                status.Text = "SoundMatic gagal dijalankan.\n\n" + e.Message;
+                status.Text = "Soundfresh gagal dijalankan.\n\n" + e.Message;
                 File.WriteAllText(Path.Combine(root, "storage", "logs", "launcher-error.log"), e.ToString());
-                MessageBox.Show(e.Message, "SoundMatic", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(e.Message, "Soundfresh", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -135,7 +135,7 @@ internal static class Program
 
         private void RecoverInterruptedAutomation()
         {
-            var info = new ProcessStartInfo(Php(root), "artisan soundonmatic:recover-interrupted")
+            var info = new ProcessStartInfo(Php(root), "artisan soundonmatic:recover-interrupted --fresh-session")
             {
                 WorkingDirectory = root,
                 UseShellExecute = false,
@@ -144,17 +144,17 @@ internal static class Program
                 RedirectStandardError = true,
             };
             info.Environment["AUTOMATION_HMAC_KEY"] = automationKey;
-            using var process = Process.Start(info) ?? throw new InvalidOperationException("Pemulihan antrean SoundMatic gagal dimulai.");
+            using var process = Process.Start(info) ?? throw new InvalidOperationException("Pemulihan antrean Soundfresh gagal dimulai.");
             process.WaitForExit(30_000);
             if (!process.HasExited)
             {
                 process.Kill(true);
-                throw new InvalidOperationException("Pemulihan antrean SoundMatic melewati batas waktu.");
+                throw new InvalidOperationException("Pemulihan antrean Soundfresh melewati batas waktu.");
             }
             if (process.ExitCode != 0)
             {
                 var error = process.StandardError.ReadToEnd();
-                throw new InvalidOperationException("Pemulihan antrean SoundMatic gagal. " + error);
+                throw new InvalidOperationException("Pemulihan antrean Soundfresh gagal. " + error);
             }
         }
 
@@ -217,8 +217,8 @@ internal static class Program
 
             var choice = MessageBox.Show(
                 this,
-                "Tutup SoundMatic dan hentikan semua service Node.js/PHP milik SoundMatic? Aplikasi lain tidak akan terpengaruh. Service akan berjalan kembali otomatis saat SoundMatic dibuka lagi.",
-                "Tutup SoundMatic?",
+                "Tutup Soundfresh dan hentikan semua service Node.js/PHP milik Soundfresh? Aplikasi lain tidak akan terpengaruh. Service akan berjalan kembali otomatis saat Soundfresh dibuka lagi.",
+                "Tutup Soundfresh?",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2);
@@ -234,7 +234,7 @@ internal static class Program
             closeApproved = true;
             Enabled = false;
             status.Visible = true;
-            status.Text = "Menghentikan service SoundMatic...";
+            status.Text = "Menghentikan service Soundfresh...";
             ShutdownServices();
             BeginInvoke(Close);
         }

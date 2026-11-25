@@ -39,6 +39,8 @@ final class Dashboard extends Component
 
     public string $releaseTab = 'all';
 
+    public string $releaseSearch = '';
+
     public ?string $configurationError = null;
 
     public ?string $uploadMessage = null;
@@ -154,7 +156,7 @@ final class Dashboard extends Component
             $this->monitorRunId = $run->id;
             $this->selectedReleaseJobs = [];
         } catch (CredentialsNotConfiguredException $error) {
-            $label = $error->platform === Platform::Soundfresh ? 'Soundfresh' : 'SoundOn';
+            $label = $error->platform === Platform::Soundfresh ? 'Soundfresh' : 'Aggregator';
             $this->configurationError = $error->keyMismatch
                 ? "Credential {$label} dari database lama tidak dapat dibaca. Masukkan ulang email dan password di Pengaturan Platform."
                 : "Credential {$label} belum dikonfigurasi pada halaman Pengaturan.";
@@ -190,7 +192,7 @@ final class Dashboard extends Component
         $this->operationError = null;
         $selected = array_values(array_unique(array_map('strval', $this->selectedReleaseJobs)));
         if ($selected === []) {
-            $this->operationError = 'Pilih minimal satu rilisan yang akan di-upload ke SoundOn.';
+            $this->operationError = 'Pilih minimal satu rilisan yang akan di-upload ke Aggregator.';
 
             return;
         }
@@ -198,18 +200,18 @@ final class Dashboard extends Component
             $result = $action->handle($selected);
         } catch (Throwable $error) {
             report($error);
-            $this->operationError = 'Upload ke SoundOn gagal diantrikan. Periksa sesi SoundOn dan status automation worker.';
+            $this->operationError = 'Upload ke Aggregator gagal diantrikan. Periksa sesi Aggregator dan status automation worker.';
 
             return;
         }
         $this->selectedReleaseJobs = [];
-        $this->uploadMessage = "{$result['queued']} rilisan terpilih diantrikan ke SoundOn; {$result['skipped']} pilihan yang sudah diproses atau tidak eligible dilewati.";
+        $this->uploadMessage = "{$result['queued']} rilisan terpilih diantrikan ke Aggregator; {$result['skipped']} pilihan yang sudah diproses atau tidak eligible dilewati.";
         $this->dispatch('soundon-upload-started');
     }
 
     public function setReleaseTab(string $tab): void
     {
-        $this->releaseTab = in_array($tab, ['all', 'uploaded', 'failed'], true) ? $tab : 'all';
+        $this->releaseTab = in_array($tab, ['all', 'queued', 'uploaded', 'failed'], true) ? $tab : 'all';
         $this->selectedReleaseJobs = [];
     }
 
@@ -487,11 +489,11 @@ final class Dashboard extends Component
             ->where('status', '!=', ReleaseJobStatus::Running)->update([
                 'status' => ReleaseJobStatus::Queued,
                 'error_code' => 'DRAFT_MANUAL_REVIEW_PENDING', 'error_message' => null,
-                'progress_label' => 'Menunggu pemeriksaan SoundOn dan perubahan status ke Under Review',
+                'progress_label' => 'Menunggu pemeriksaan Aggregator dan perubahan status ke Under Review',
                 'finished_at' => null, 'progress_updated_at' => now(),
             ]);
         abort_unless($updated === 1, 409);
-        app(OperatorAudit::class)->record('draft_manual_review_requested', 'Operator requested Pending to Under Review after a matching SoundOn release was detected.', $job->automation_run_id, $job->id);
+        app(OperatorAudit::class)->record('draft_manual_review_requested', 'Operator requested Pending to Under Review after a matching Aggregator release was detected.', $job->automation_run_id, $job->id);
         ReviewManuallyVerifiedDraft::dispatch((string) $job->id);
         $this->uploadMessage = "Perubahan status Soundfresh {$job->release_title} dari Pending ke Under Review telah diantrikan.";
     }
@@ -505,7 +507,7 @@ final class Dashboard extends Component
 
         $job = ReleaseJob::with('automationRun')->findOrFail($jobId);
         abort_unless($job->error_code === 'DUPLICATE_RELEASE_FOUND', 409, 'Hanya rilisan yang terdeteksi duplikat yang dapat dipaksa upload.');
-        abort_if(filled($job->soundon_draft_id), 409, 'Rilisan ini sudah memiliki draft SoundOn.');
+        abort_if(filled($job->soundon_draft_id), 409, 'Rilisan ini sudah memiliki draft Aggregator.');
 
         DB::transaction(function () use ($job): void {
             $run = $job->automationRun;
@@ -540,7 +542,7 @@ final class Dashboard extends Component
             $job->id,
         );
         ProcessReleaseJob::dispatch($job->id);
-        $this->uploadMessage = "{$job->release_title} diantrikan untuk tetap di-upload ke SoundOn.";
+        $this->uploadMessage = "{$job->release_title} diantrikan untuk tetap di-upload ke Aggregator.";
     }
 
     public function render()
@@ -589,6 +591,7 @@ final class Dashboard extends Component
             : ReleaseJob::query()
                 ->with('automationRun')
                 ->whereIn('soundfresh_release_id', $pendingReleaseIds)
+                ->whereHas('automationRun', fn ($query) => $query->forCurrentMonitor())
                 ->latest()
                 ->get()
                 ->unique('soundfresh_release_id')
@@ -608,7 +611,7 @@ final class Dashboard extends Component
         $activeJobs = $releaseJobs
             ->filter(fn (ReleaseJob $job) => $job->status === ReleaseJobStatus::Running)
             ->values();
-        $systemStatus = app(LocalSystemManager::class)->status();
+        $systemStatus = app(LocalSystemManager::class)->displayStatus();
         $duplicateCheckingCount = $releaseJobs->where('error_code', 'DUPLICATE_CHECK_PENDING')->count();
         $duplicateCheckingJob = $releaseJobs->first(fn (ReleaseJob $job) => $job->error_code === 'DUPLICATE_CHECK_PENDING');
         $duplicateProgressPercent = $duplicateCheckingCount > 0
@@ -628,10 +631,15 @@ final class Dashboard extends Component
             ->count();
 
         $filteredReleaseJobs = match ($this->releaseTab) {
+            'queued' => $releaseJobs->filter(fn (ReleaseJob $job) => $job->status === ReleaseJobStatus::Queued && $job->error_code !== 'DUPLICATE_CHECK_PENDING')->values(),
             'uploaded' => $releaseJobs->filter(fn (ReleaseJob $job) => filled($job->soundon_draft_id))->values(),
             'failed' => $releaseJobs->filter(fn (ReleaseJob $job) => blank($job->soundon_draft_id) && in_array($job->status->value, ['failed', 'needs_attention', 'manual_auth_required'], true))->values(),
             default => $releaseJobs,
         };
+        if (($search = trim($this->releaseSearch)) !== '') {
+            $filteredReleaseJobs = $filteredReleaseJobs->filter(fn (ReleaseJob $job) =>
+                mb_stripos(implode(' ', [$job->release_title, $job->artist_name, $job->soundfresh_release_id]), $search) !== false)->values();
+        }
 
         $workerOnline = $systemStatus['worker'];
         $activeRunsCount = AutomationRun::query()
@@ -694,6 +702,7 @@ final class Dashboard extends Component
 
         return ReleaseJob::query()
             ->whereIn('soundfresh_release_id', $pendingReleaseIds ?: [''])
+            ->whereHas('automationRun', fn ($query) => $query->forCurrentMonitor())
             ->whereNull('soundon_draft_id')
             ->where(function ($query): void {
                 $query->whereNull('error_code')->orWhereNotIn('error_code', [
@@ -724,6 +733,9 @@ final class Dashboard extends Component
     private function visibleRunsQuery()
     {
         return AutomationRun::query()
+            ->forCurrentMonitor()
+            ->where(fn ($query) => $query->whereNull('summary_json->monitor_archived')
+                ->orWhere('summary_json->monitor_archived', false))
             ->whereNotIn('status', [AutomationRunStatus::Stopped, AutomationRunStatus::Cancelled])
             ->where(function ($query): void {
                 $query->whereNull('summary_json->purpose')

@@ -6,16 +6,26 @@ namespace App\Services\Automation;
 
 use RuntimeException;
 use Symfony\Component\Process\Process;
+use Illuminate\Support\Facades\Cache;
 
 final class LocalSystemManager
 {
+    private ?string $processList = null;
+
+    /** Display-only snapshot. Lifecycle actions continue to use fresh checks. */
+    public function displayStatus(): array
+    {
+        return Cache::remember('soundmatic.system-display:'.md5(base_path()), 3, fn () => $this->status());
+    }
+
     /** @return array{server: bool, worker: bool, release_workers: int, status_workers: int, queues_online: bool, worker_slots: int, browser_slots: int} */
     public function status(): array
     {
+        $this->processList = null;
         $releaseWorkers = $this->queueWorkerCount('release-automation');
         $statusWorkers = $this->queueWorkerCount('status-checks');
 
-        return [
+        $status = [
             'server' => $this->serverIsOnline(),
             'worker' => $this->workerIsOnline(),
             'release_workers' => $releaseWorkers,
@@ -24,6 +34,9 @@ final class LocalSystemManager
             'worker_slots' => (int) config('automation.release_queue_workers', 3),
             'browser_slots' => (int) config('automation.browser_concurrency', 3),
         ];
+        Cache::put('soundmatic.system-display:'.md5(base_path()), $status, 3);
+
+        return $status;
     }
 
     /** @return array{server: bool, worker: bool, message: string} */
@@ -215,7 +228,8 @@ final class LocalSystemManager
             if (! is_file($pidFile)) continue;
             $pid = (int) trim((string) file_get_contents($pidFile));
             if ($pid < 1) continue;
-            $output = (string) shell_exec('tasklist.exe /FI "PID eq '.$pid.'" /FO CSV /NH 2>NUL');
+            $this->processList ??= (string) shell_exec('tasklist.exe /FO CSV /NH 2>NUL');
+            $output = $this->processList;
             if (str_contains($output, '"'.$pid.'"') && ! str_contains(strtolower($output), 'no tasks are running')) $count++;
         }
         return $count ?: ($this->windowsQueueProcessExists($queue) ? 1 : 0);

@@ -2,7 +2,7 @@
     <x-automation-nav />
     <main class="page-shell">
         <section class="page-heading">
-            <div><div class="eyebrow">Soundfresh Review</div><h1 class="page-title">Review Rilisan</h1><p class="page-subtitle">Daftar rilisan diambil dari Soundfresh; Last Update Date dicocokkan dari SoundOn.</p></div>
+            <div><div class="eyebrow">Soundfresh Review</div><h1 class="page-title">Review Rilisan</h1><p class="page-subtitle">Daftar rilisan diambil dari Soundfresh; Last Update Date dicocokkan dari Aggregator.</p></div>
             <button type="button" wire:click="fetchReviews" wire:loading.attr="disabled" wire:target="fetchReviews" class="primary-button">
                 <span wire:loading.remove wire:target="fetchReviews">Ambil Data Review</span><span wire:loading wire:target="fetchReviews">Mengambil data…</span>
             </button>
@@ -15,11 +15,11 @@
         <section class="panel overflow-hidden">
             <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
                 <div><h2 class="font-bold text-slate-800">Rilisan Under Review Soundfresh</h2><p class="mt-1 text-sm text-slate-500">{{ count($items) }} data{{ $fetchedAt ? ' · Diambil '.$fetchedAt : '' }}</p></div>
-                <span class="badge badge--warning">Soundfresh · Last Update SoundOn</span>
+                <span class="badge badge--warning">Soundfresh · Last Update Aggregator</span>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[760px] text-left text-sm">
-                    <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-5 py-3">Judul</th><th class="px-5 py-3">Nama Artis</th><th class="px-5 py-3">Tanggal Rilis</th><th class="px-5 py-3">Last Update SoundOn</th></tr></thead>
+                    <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-5 py-3">Judul</th><th class="px-5 py-3">Nama Artis</th><th class="px-5 py-3">Tanggal Rilis</th><th class="px-5 py-3">Last Update Aggregator</th></tr></thead>
                     <tbody class="divide-y divide-slate-100">
                         @forelse ($items as $item)
                             <tr>
@@ -29,7 +29,7 @@
                                 <td class="px-5 py-4 text-slate-600">{{ $item['last_updated'] ?? '—' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="4" class="px-5 py-12 text-center text-slate-500">Belum ada data. Tekan “Ambil Data Review” untuk membaca rilisan Under Review dari SoundOn.</td></tr>
+                            <tr><td colspan="4" class="px-5 py-12 text-center text-slate-500">Belum ada data. Tekan “Ambil Data Review” untuk membaca rilisan Under Review dari Aggregator.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

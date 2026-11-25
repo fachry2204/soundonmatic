@@ -46,11 +46,18 @@ class FailedUploadRejectionTest extends TestCase
     public function test_button_opens_confirmation_with_editable_failure_reason_and_cancel_sends_nothing(): void
     {
         $job = $this->release();
-        Livewire::test(Dashboard::class)->assertSee('Reject di Soundfresh')
+        $page = Livewire::test(Dashboard::class)->assertSee('Reject di Soundfresh')
             ->call('openRejectFailedUpload', $job->id)
             ->assertSet('uploadRejectReason', FailedUploadRejection::reason($job))
             ->assertSee('Alasan penolakan')->assertSee('Berkah bersholawat')
-            ->call('cancelRejectFailedUpload')->assertSet('rejectingUploadJobId', null);
+            ->set('uploadRejectReason', 'Mohon perbaiki ISRC rilisan ini.')
+            ->call('refreshMonitor')->assertSet('rejectingUploadJobId', $job->id)
+            ->assertSet('uploadRejectReason', 'Mohon perbaiki ISRC rilisan ini.')
+            ->call('cancelRejectFailedUpload')->assertSet('rejectingUploadJobId', null)
+            ->assertSet('uploadRejectReason', '');
+        $page->call('openRejectFailedUpload', $job->id)
+            ->assertSet('rejectingUploadJobId', $job->id)
+            ->assertSee('Alasan penolakan');
         Queue::assertNotPushed(RejectSoundfreshRelease::class);
         $this->assertSame('pending', $job->fresh()->soundfresh_workflow_status);
         $preview = Livewire::test(Dashboard::class)->call('openRejectFailedUpload', $job->id);

@@ -55,16 +55,16 @@ final class SoundOnDraftCleanup extends Component
             $result = $eligibility->evaluate($draft, $worker->protectedSoundfreshScans($soundfresh));
             if (! $result['eligible']) throw new \RuntimeException($result['reason']);
             $deleted = $worker->deleteSoundonDraft($draftId, (string) $draft['title'], $soundon);
-            if (($deleted['deleted'] ?? false) !== true) throw new \RuntimeException('Penghapusan belum dikonfirmasi SoundOn.');
+            if (($deleted['deleted'] ?? false) !== true) throw new \RuntimeException('Penghapusan belum dikonfirmasi Aggregator.');
             $this->items = array_values(array_filter($this->items, fn ($item) => ($item['draft_id'] ?? null) !== $draftId));
-            $this->message = 'Draft '.$draft['title'].' dihapus dari SoundOn.';
+            $this->message = 'Draft '.$draft['title'].' dihapus dari Aggregator.';
             try {
                 app(OperatorAudit::class)->record('soundon_draft_deleted', 'Operator deleted a draft after a fresh protected-status scan.', null, null, ['draft_id' => $draftId, 'title' => $draft['title'], 'artist' => $draft['artist']]);
             } catch (Throwable $auditError) { report($auditError); }
         } catch (Throwable $error) {
             report($error);
             $this->items = [];
-            $this->message = 'Penghapusan tidak terkonfirmasi. Periksa SoundOn sebelum mencoba lagi. '.$error->getMessage();
+            $this->message = 'Penghapusan tidak terkonfirmasi. Periksa Aggregator sebelum mencoba lagi. '.$error->getMessage();
         }
     }
 

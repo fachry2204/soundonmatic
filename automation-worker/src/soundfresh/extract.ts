@@ -54,19 +54,26 @@ const normalizeUpc = (value: string | undefined): string | null => {
 
 /** Open and read only the lyrics belonging to this track, preserving line breaks. */
 export async function extractTrackLyrics(track: Locator): Promise<string | null> {
+    // Bootstrap accordions may close the previous track when the next one opens.
+    // Reopen this track immediately before looking for its visible lyrics button.
+    const header = track.locator(':scope > .accordion-header button').first();
+    if (await header.count() && await header.getAttribute('aria-expanded') !== 'true') {
+        await header.click({ timeout: 8_000 });
+    }
     const toggle = track.getByRole('button', { name: /show\s*\/\s*hide\s+lyrics/i })
         .or(track.getByRole('link', { name: /show\s*\/\s*hide\s+lyrics/i })).first();
+    // Wait for the track's collapse animation before deciding it has no lyrics.
+    const existingToggle = track.getByRole('button', { name: /show\s*\/\s*hide\s+lyrics/i, includeHidden: true })
+        .or(track.getByRole('link', { name: /show\s*\/\s*hide\s+lyrics/i, includeHidden: true })).first();
+    if (await existingToggle.count()) {
+        try { await existingToggle.waitFor({ state: 'visible', timeout: 8_000 }); }
+        catch { throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_toggle_not_visible'); }
+    }
     if (!await toggle.count()) {
         const field = track.locator('textarea[name*="lyric" i], textarea[id*="lyric" i]').first();
         return await field.count() ? (await field.inputValue()).replace(/\r\n?/g, '\n').trim() || null : null;
     }
-    const wasExpanded = await toggle.getAttribute('aria-expanded') === 'true';
-    if (!wasExpanded) {
-        try { await toggle.click({ timeout: 8_000 }); }
-        catch { throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_toggle_not_visible'); }
-    }
-    await track.page().waitForTimeout(500);
-    const result = await toggle.evaluate((button) => {
+    const readLyrics = () => toggle.evaluate((button) => {
         const root = button.closest('.accordion-item');
         if (!root) return null;
         const target = button.getAttribute('aria-controls') || button.getAttribute('data-bs-target') ||
@@ -98,6 +105,19 @@ export async function extractTrackLyrics(track: Locator): Promise<string | null>
         const value = input ? (input as HTMLTextAreaElement).value : (textContent as HTMLElement).innerText;
         return (value ?? '').replace(/\r\n?/g, '\n').trim();
     });
+    // Soundfresh's toggle does not always expose aria-expanded. Read an already
+    // open box first so retries do not hide it again.
+    let result = await readLyrics();
+    if (result === null) {
+        try { await toggle.click({ timeout: 8_000 }); }
+        catch { throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_toggle_not_visible'); }
+        const deadline = Date.now() + 5_000;
+        do {
+            result = await readLyrics();
+            if (result !== null) break;
+            await track.page().waitForTimeout(100);
+        } while (Date.now() < deadline);
+    }
     if (result === null) throw new Error('SOUNDFRESH_UI_CHANGED:lyrics_content');
     const target = (await toggle.getAttribute('aria-controls')) || (await toggle.getAttribute('data-bs-target')) || (await toggle.getAttribute('data-target')) || '';
     const targetId = target.replace(/^.*#/, '');

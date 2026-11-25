@@ -61,7 +61,7 @@ final class SoundOnReviews extends Component
                 $soundOn = AutomationAccount::query()->where('platform', Platform::SoundOn)->firstOrFail();
                 $soundOnSession = $soundOn->session_state_encrypted;
                 if (! is_array($soundOnSession) || $soundOnSession === []) {
-                    $dateMessage = ' Sesi SoundOn tidak aktif, sehingga Last Updated Date belum dapat diisi.';
+                    $dateMessage = ' Sesi Aggregator tidak aktif, sehingga Last Updated Date belum dapat diisi.';
                 } elseif ($lookups !== []) {
                     $lastUpdated = $worker->soundOnReviewLastUpdated($lookups, $soundOnSession);
                     foreach ($lastUpdated as $key => $value) {
@@ -69,10 +69,10 @@ final class SoundOnReviews extends Component
                     }
                 }
             } catch (CredentialsNotConfiguredException) {
-                $dateMessage = ' Credential atau sesi SoundOn belum siap, sehingga Last Updated Date belum dapat diisi.';
+                $dateMessage = ' Credential atau sesi Aggregator belum siap, sehingga Last Updated Date belum dapat diisi.';
             } catch (Throwable $error) {
                 report($error);
-                $dateMessage = ' Last Updated Date SoundOn gagal dibaca; data Soundfresh tetap ditampilkan.';
+                $dateMessage = ' Last Updated Date Aggregator gagal dibaca; data Soundfresh tetap ditampilkan.';
             }
 
             $this->fetchedAt = now()->format('d M Y H:i:s');

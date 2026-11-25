@@ -67,7 +67,7 @@
                 <header class="panel-header">
                     <div>
                         <h2 class="panel-title">Daftar User &amp; Role</h2>
-                        <p class="panel-copy">Pengguna aktif pada aplikasi SoundMatic.</p>
+                        <p class="panel-copy">Pengguna aktif pada aplikasi Soundfresh.</p>
                     </div>
                 </header>
 

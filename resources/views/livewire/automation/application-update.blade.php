@@ -1,7 +1,7 @@
 <div wire:init="checkForUpdate(true)" @if($popup) wire:poll.60s="checkForUpdate(true)" @endif>
     @if($popup)
         @if($showPopup)
-            <dialog x-data x-init="$el.showModal()" x-on:cancel.prevent="if (!$el.querySelector('[data-update-dismiss]').disabled) { $el.close(); $wire.dismissPopup() }" aria-labelledby="system-update-title" aria-describedby="system-update-description" class="system-update-dialog m-auto max-h-[90vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
+            <dialog wire:ignore.self wire:key="system-update-{{ $latestVersion }}" x-data x-init="$el.showModal()" x-on:cancel.prevent="if (!$el.querySelector('[data-update-dismiss]').disabled) { $el.close(); $wire.dismissPopup() }" aria-labelledby="system-update-title" aria-describedby="system-update-description" class="system-update-dialog m-auto max-h-[90vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
                 <span class="badge badge--success">Update tersedia</span>
                 <h2 id="system-update-title" class="mt-4 text-xl font-bold">Sistem versi terbaru tersedia</h2>
                 <p class="my-4 text-2xl font-bold">v{{ $currentVersion }} <span aria-label="ke">→</span> v{{ $latestVersion }}</p>
@@ -27,7 +27,7 @@
             <div>
                 <div class="eyebrow">Application maintenance</div>
                 <h1 class="page-title">Update Aplikasi</h1>
-                <p class="page-subtitle">Perbarui SoundMatic langsung dari aplikasi tanpa mengunduh dan menjalankan EXE secara manual.</p>
+                <p class="page-subtitle">Perbarui Soundfresh langsung dari aplikasi tanpa mengunduh dan menjalankan EXE secara manual.</p>
             </div>
             <span class="badge badge--brand">Versi {{ $currentVersion }}</span>
         </section>
@@ -63,9 +63,9 @@
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-3 border-t border-slate-100 p-5">
-                <button type="button" wire:click="checkForUpdate" wire:loading.attr="disabled" wire:target="checkForUpdate" class="secondary-button">
-                    <span wire:loading.remove wire:target="checkForUpdate">Cek Update</span>
-                    <span wire:loading wire:target="checkForUpdate">Mengecek GitHub...</span>
+                <button type="button" wire:click="checkUpdateManually" wire:loading.attr="disabled" wire:target="checkUpdateManually" class="secondary-button">
+                    <span wire:loading.remove wire:target="checkUpdateManually">Cek Update</span>
+                    <span wire:loading wire:target="checkUpdateManually">Mengecek GitHub...</span>
                 </button>
                 <button type="button" wire:click="downloadAndInstall" wire:confirm="Perbarui sistem sekarang? Pembaruan diunduh dan dipasang otomatis, lalu aplikasi dibuka kembali. Selesaikan proses rilisan terlebih dahulu." wire:loading.attr="disabled" wire:target="downloadAndInstall" @disabled(! $updateAvailable || ! $installerUrl || $installStarted) class="primary-button">
                     <span wire:loading.remove wire:target="downloadAndInstall">Update Sistem</span>
@@ -89,6 +89,29 @@
 
         <div class="info-banner mt-6"><strong>Syarat update</strong><span>GitHub Release harus memakai tag versi seperti v1.1.41 dan memiliki asset installer bernama SoundMatic-Setup-v1.1.41.exe.</span></div>
     </main>
+    @endif
+
+    @if($showCheckResult)
+        <dialog wire:ignore.self wire:key="update-check-result" x-data x-init="$el.showModal()" x-on:cancel.prevent="$wire.closeCheckResult()" aria-labelledby="update-check-result-title" aria-describedby="update-check-result-description" class="system-update-dialog m-auto max-h-[90vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
+            <span class="badge {{ $checkFailed ? 'badge--danger' : 'badge--success' }}">Hasil pemeriksaan</span>
+            <h2 id="update-check-result-title" class="mt-4 text-xl font-bold">{{ $checkFailed ? 'Pemeriksaan update gagal' : ($updateAvailable ? 'Update terbaru tersedia' : 'Aplikasi sudah versi terbaru') }}</h2>
+            <p id="update-check-result-description" class="mt-3 text-sm leading-6 text-slate-600">{{ $message }}</p>
+            @unless($checkFailed)
+                <dl class="mt-5 grid grid-cols-2 gap-4 rounded-xl bg-slate-50 p-4 text-sm">
+                    <div><dt class="text-slate-500">Versi terpasang</dt><dd class="mt-1 font-bold">v{{ $currentVersion }}</dd></div>
+                    <div><dt class="text-slate-500">Versi terbaru</dt><dd class="mt-1 font-bold">v{{ $latestVersion }}</dd></div>
+                </dl>
+            @endunless
+            <div class="mt-6 flex flex-wrap justify-end gap-3">
+                <button type="button" wire:click="closeCheckResult" wire:loading.attr="disabled" class="secondary-button" autofocus>Tutup</button>
+                @if(!$checkFailed && $updateAvailable && $installerUrl)
+                    <button type="button" wire:click="downloadAndInstall" wire:loading.attr="disabled" @disabled($installStarted) class="primary-button">
+                        <span wire:loading.remove wire:target="downloadAndInstall">Update Sistem</span>
+                        <span wire:loading wire:target="downloadAndInstall">Menyiapkan update...</span>
+                    </button>
+                @endif
+            </div>
+        </dialog>
     @endif
 
     @script

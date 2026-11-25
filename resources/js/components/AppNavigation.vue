@@ -3,6 +3,7 @@ import { computed } from 'vue';
 
 const props = defineProps({
     currentPath: String,
+    logoUrl: String,
     userName: String,
     userRole: String,
     canViewDashboard: Boolean,
@@ -46,17 +47,23 @@ const logout = async () => {
     });
     window.location.href = props.loginUrl;
 };
+
+const navigate = (event, href) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0 || !window.Livewire?.navigate) return;
+    event.preventDefault();
+    window.Livewire.navigate(href);
+};
 </script>
 
 <template>
     <header class="top-navigation">
-        <a :href="dashboardUrl" class="brand top-navigation__brand" aria-label="SoundMatic Dashboard">
-            <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
-            <span><strong>SoundMatic</strong><small>Release Automation</small></span>
+        <a :href="dashboardUrl" @click="navigate($event, dashboardUrl)" class="brand top-navigation__brand" aria-label="Soundfresh Dashboard">
+            <img class="brand-logo" :src="logoUrl" alt="Logo Soundfresh" width="38" height="44">
+            <span><strong>Soundfresh</strong><small>Release Automation</small></span>
         </a>
 
         <nav id="primary-navigation" class="top-navigation__links" aria-label="Navigasi utama">
-            <a v-for="item in items" :key="item.href" :href="item.href" :aria-current="isActive(item.href) ? 'page' : undefined" :class="['nav-item', { 'nav-item--active': isActive(item.href) }]">
+            <a v-for="item in items" :key="item.href" :href="item.href" @click="navigate($event, item.href)" :title="item.label" :aria-label="item.label" :aria-current="isActive(item.href) ? 'page' : undefined" :class="['nav-item', { 'nav-item--active': isActive(item.href) }]">
                 <svg v-if="item.icon === 'grid'" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
                 <svg v-else-if="item.icon === 'status'" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M17 15l1.5 1.5L21 14"/></svg>
                 <svg v-else-if="item.icon === 'users'" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
@@ -70,7 +77,7 @@ const logout = async () => {
         <div class="top-navigation__user">
             <span class="user-avatar">{{ userName?.charAt(0).toUpperCase() }}</span>
             <span class="user-copy"><strong>{{ userName }}</strong><small>{{ userRole }}</small></span>
-            <button type="button" class="logout-button" aria-label="Keluar dari SoundMatic" title="Keluar" @click="logout">
+            <button type="button" class="logout-button" aria-label="Keluar dari Soundfresh" title="Keluar" @click="logout">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4"/></svg>
             </button>
         </div>

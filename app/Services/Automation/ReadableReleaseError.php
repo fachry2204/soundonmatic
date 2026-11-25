@@ -12,21 +12,21 @@ final class ReadableReleaseError
                 'title' => 'Pencegahan draft ganda aktif',
                 'reason' => $code === 'DRAFT_CREATION_IN_PROGRESS'
                     ? 'Judul dan artis yang sama sedang diproses oleh job lain. Permintaan ini tidak membuat draft baru.'
-                    : 'Pencarian draft SoundOn belum dapat memastikan hasilnya. Pembuatan draft baru dihentikan agar tidak menggandakan rilisan.',
-                'action' => 'Tunggu proses yang berjalan selesai, lalu periksa draft SoundOn sebelum Retry. Draft yang sudah ada tidak dihapus oleh sistem.',
+                    : 'Pencarian draft Aggregator belum dapat memastikan hasilnya. Pembuatan draft baru dihentikan agar tidak menggandakan rilisan.',
+                'action' => 'Tunggu proses yang berjalan selesai, lalu periksa draft Aggregator sebelum Retry. Draft yang sudah ada tidak dihapus oleh sistem.',
             ];
         }
         if ($code === 'SOUNDFRESH_REVIEW_FAILED' || str_contains($message, 'SOUNDFRESH_REVIEW_FAILED:')) {
             return [
                 'title' => 'Pembaruan status Soundfresh gagal',
-                'reason' => 'Draft SoundOn sudah tersimpan. Kegagalan terjadi saat mengubah status Soundfresh dari Pending ke Under Review, bukan saat upload ke SoundOn.',
+                'reason' => 'Draft Aggregator sudah tersimpan. Kegagalan terjadi saat mengubah status Soundfresh dari Pending ke Under Review, bukan saat upload ke Aggregator.',
                 'action' => 'Periksa sesi Soundfresh, pemilihan English, dan dialog Review Release. Retry melanjutkan dari checkpoint draft tersimpan; jangan membuat upload baru. Kirim Detail teknis jika tetap gagal.',
             ];
         }
         if ($code === 'SOUNDON_REQUIRED_FIELD_UNRESOLVED'
             && preg_match('/Isian:\s*([^\r\n]+)/u', $message, $fields)) {
             return [
-                'title' => 'Isian wajib SoundOn belum tersimpan',
+                'title' => 'Isian wajib Aggregator belum tersimpan',
                 'reason' => 'Field yang belum terkonfirmasi: '.trim($fields[1]),
                 'action' => 'Draft belum dinyatakan berhasil dan Soundfresh tetap Pending. Periksa nama, role, atau pilihan pada field tersebut; jangan mengubah metadata lain yang tidak berkaitan.',
             ];
@@ -38,15 +38,15 @@ final class ReadableReleaseError
 
             if (str_contains(strtolower($message), 'artist name cannot contain urls or website links')) {
                 return [
-                    'title' => 'Nama artis ditolak validasi SoundOn',
-                    'reason' => 'Sumber: form SoundOn. Nama “'.trim($match[2]).'” pada field “'.$field.'” ditolak dengan pesan: Artist name cannot contain URLs or website links.',
-                    'action' => 'Nama tetap dipertahankan sesuai Soundfresh; sistem tidak menghapus tanda titik atau mengganti identitas artis. Coba pilih profil artis yang sudah ada dengan nama yang sama di SoundOn. Jika nama yang sah tetap ditolak, minta bantuan SoundOn. Draft belum terverifikasi, sehingga status Soundfresh belum diubah.',
+                    'title' => 'Nama artis ditolak validasi Aggregator',
+                    'reason' => 'Sumber: form Aggregator. Nama “'.trim($match[2]).'” pada field “'.$field.'” ditolak dengan pesan: Artist name cannot contain URLs or website links.',
+                    'action' => 'Nama tetap dipertahankan sesuai Soundfresh; sistem tidak menghapus tanda titik atau mengganti identitas artis. Coba pilih profil artis yang sudah ada dengan nama yang sama di Aggregator. Jika nama yang sah tetap ditolak, minta bantuan Aggregator. Draft belum terverifikasi, sehingga status Soundfresh belum diubah.',
                 ];
             }
 
             return [
-                'title' => 'Kredit SoundOn belum tersimpan',
-                'reason' => 'Sumber: SoundOn. Nama “'.trim($match[2]).'” pada field “'.$field.'” belum terkonfirmasi tersimpan pada rilisan setelah Submit.',
+                'title' => 'Kredit Aggregator belum tersimpan',
+                'reason' => 'Sumber: Aggregator. Nama “'.trim($match[2]).'” pada field “'.$field.'” belum terkonfirmasi tersimpan pada rilisan setelah Submit.',
                 'action' => 'Profil yang terlihat di jendela pencarian belum berarti kredit sudah tersimpan. Draft dan status Soundfresh hanya dinyatakan berhasil setelah hasil penyimpanan terverifikasi. Detail teknis menunjukkan tahap dan respons form.',
             ];
         }
@@ -54,9 +54,9 @@ final class ReadableReleaseError
             || preg_match('/SOUNDON_MONETIZATION_NOT_ENABLED:([^\r\n]+)/', $message)) {
             preg_match('/SOUNDON_MONETIZATION_NOT_ENABLED:([^\r\n]+)/', $message, $option);
             return [
-                'title' => 'Pengaturan monetisasi SoundOn belum tersimpan',
-                'reason' => 'Sumber: form SoundOn. Opsi “'.trim($option[1] ?? 'Monetisasi').'” belum terkonfirmasi aktif setelah dipilih.',
-                'action' => 'Periksa kelayakan genre dan keterangan pada opsi SoundOn. Opsi yang dinonaktifkan SoundOn dilewati dengan peringatan; opsi aktif yang gagal tersimpan memerlukan pemeriksaan. Ini bukan bukti file audio rusak.',
+                'title' => 'Pengaturan monetisasi Aggregator belum tersimpan',
+                'reason' => 'Sumber: form Aggregator. Opsi “'.trim($option[1] ?? 'Monetisasi').'” belum terkonfirmasi aktif setelah dipilih.',
+                'action' => 'Periksa kelayakan genre dan keterangan pada opsi Aggregator. Opsi yang dinonaktifkan Aggregator dilewati dengan peringatan; opsi aktif yang gagal tersimpan memerlukan pemeriksaan. Ini bukan bukti file audio rusak.',
             ];
         }
         if (preg_match('/SOUNDON_UI_CHANGED:(?:blocking_dialog|stale_dialog):([^\r\n]+)/', $message, $match)) {
@@ -64,32 +64,32 @@ final class ReadableReleaseError
             $field = ['Primary artists' => 'artis utama', 'Songwriters' => 'penulis lagu', 'Production and additional contributors' => 'kontributor produksi'][$field] ?? $field;
             return [
                 'title' => 'Pengisian metadata terhenti',
-                'reason' => "Sistem tidak dapat menutup jendela isian sebelumnya di SoundOn, sehingga belum bisa melanjutkan ke bagian {$field}.",
-                'action' => 'Perlu pemeriksaan dialog oleh sistem. Jangan langsung upload ulang: cek dahulu apakah rilisan sudah tersimpan di SoundOn. Error ini tidak membuktikan file audio rusak atau upload gagal.',
+                'reason' => "Sistem tidak dapat menutup jendela isian sebelumnya di Aggregator, sehingga belum bisa melanjutkan ke bagian {$field}.",
+                'action' => 'Perlu pemeriksaan dialog oleh sistem. Jangan langsung upload ulang: cek dahulu apakah rilisan sudah tersimpan di Aggregator. Error ini tidak membuktikan file audio rusak atau upload gagal.',
             ];
         }
         if (preg_match('/SOUNDON_UI_CHANGED:field:([^\r\n]+)/', $message, $match)) {
             $field = trim($match[1]);
             return [
-                'title' => 'Pengisian metadata SoundOn terhenti',
-                'reason' => "Tahap pengisian form metadata berhenti karena field “{$field}” tidak ditemukan pada tampilan SoundOn.",
-                'action' => 'Cover Art, Audio Master, dan Audio Clip baru selesai diunduh ke komputer; aset belum mulai diunggah ke SoundOn. Periksa perubahan form SoundOn sebelum menekan Retry.',
+                'title' => 'Pengisian metadata Aggregator terhenti',
+                'reason' => "Tahap pengisian form metadata berhenti karena field “{$field}” tidak ditemukan pada tampilan Aggregator.",
+                'action' => 'Cover Art, Audio Master, dan Audio Clip baru selesai diunduh ke komputer; aset belum mulai diunggah ke Aggregator. Periksa perubahan form Aggregator sebelum menekan Retry.',
             ];
         }
         if ($code === 'SOUNDON_FORM_VALIDATION') {
             $detail = trim(explode('Detail teknis:', $message, 2)[1] ?? 'field wajib belum lengkap');
 
             return [
-                'title' => 'Pengisian form SoundOn gagal',
-                'reason' => 'SoundOn menolak data saat sistem mengisi atau menyimpan form metadata. Ini bukan file rusak dan bukan berarti upload audio/cover gagal.',
-                'action' => 'Perbaiki metadata yang diminta SoundOn'.($detail !== '' ? ' ('.$detail.')' : '').', lalu tekan Retry.',
+                'title' => 'Pengisian form Aggregator gagal',
+                'reason' => 'Aggregator menolak data saat sistem mengisi atau menyimpan form metadata. Ini bukan file rusak dan bukan berarti upload audio/cover gagal.',
+                'action' => 'Perbaiki metadata yang diminta Aggregator'.($detail !== '' ? ' ('.$detail.')' : '').', lalu tekan Retry.',
             ];
         }
 
         return [
             'title' => match ($code) {
-                'UI_CHANGED' => 'Kontrol SoundOn belum dapat diakses',
-                'UI_INTERACTION_TIMEOUT' => 'Kontrol form SoundOn tidak merespons',
+                'UI_CHANGED' => 'Kontrol Aggregator belum dapat diakses',
+                'UI_INTERACTION_TIMEOUT' => 'Kontrol form Aggregator tidak merespons',
                 'AUTH_SESSION_EXPIRED' => 'Sesi login kedaluwarsa',
                 'UPLOAD_FAILED' => 'Pengiriman belum berhasil dikonfirmasi',
                 default => 'Proses memerlukan pemeriksaan',

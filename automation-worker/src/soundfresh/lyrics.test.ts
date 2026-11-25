@@ -4,6 +4,58 @@ import { extractReleaseLyrics, extractTrackLyrics } from './extract.js';
 import { setTextField } from '../soundon/draft-driver.js';
 
 describe('lyrics transfer', () => {
+    it('reopens each track in an exclusive accordion and transfers its complete lyrics', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            const lyrics = '[Verse 1]\n' + Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`).join('\n') + '\n\n[Outro]\nLast line';
+            await page.setContent(`<script>
+                function openTrack(button, id) {
+                    document.querySelectorAll('.accordion-body').forEach(body => body.hidden = true);
+                    document.querySelectorAll('.accordion-header button').forEach(header => header.setAttribute('aria-expanded', 'false'));
+                    document.getElementById(id).hidden = false;
+                    button.setAttribute('aria-expanded', 'true');
+                }
+                </script>
+                ${[1, 2].map(id => `<div class="accordion-item">
+                    <h2 class="accordion-header"><button aria-expanded="false" onclick="openTrack(this, 'track-${id}')">Track ${id}</button></h2>
+                    <div class="accordion-body" id="track-${id}" hidden>
+                        <table><tr><td>Title</td><td>Song ${id}</td></tr></table>
+                        <button onclick="document.getElementById('lyrics-${id}').hidden = !document.getElementById('lyrics-${id}').hidden">Show/Hide Lyrics</button>
+                        <div id="lyrics-${id}" hidden style="max-height:80px;overflow:auto"><pre></pre></div>
+                    </div></div>`).join('')}
+                <div><label class="soundon-formik-field-label">Lyrics (Optional)</label><textarea></textarea></div>`);
+            await page.locator('#lyrics-1 pre').evaluate((node, value) => { node.textContent = value; }, lyrics);
+            await page.locator('#lyrics-2 pre').evaluate(node => { node.textContent = 'Other song\nLast verse'; });
+            expect(await extractReleaseLyrics(page)).toEqual([
+                { title: 'Song 1', lyrics }, { title: 'Song 2', lyrics: 'Other song\nLast verse' },
+            ]);
+            await setTextField(page, 'Lyrics', lyrics);
+            expect(await page.locator('textarea').inputValue()).toBe(lyrics);
+        } finally { await browser.close(); }
+    }, 15000);
+
+    it('keeps an already visible lyrics box open even without aria-expanded', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div class="accordion-item"><button onclick="document.getElementById('lyrics').hidden=true">Show/Hide Lyrics</button>
+                <div id="lyrics"><pre>First line\n\nLast line</pre></div></div>`);
+            expect(await extractTrackLyrics(page.locator('.accordion-item'))).toBe('First line\n\nLast line');
+            expect(await extractTrackLyrics(page.locator('.accordion-item'))).toBe('First line\n\nLast line');
+        } finally { await browser.close(); }
+    }, 10000);
+
+    it('waits for the lyrics box to appear after clicking the toggle', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div class="accordion-item"><button onclick="setTimeout(() => document.getElementById('lyrics').hidden=false, 900)">Show/Hide Lyrics</button>
+                <div id="lyrics" hidden><pre>First line\nLast line</pre></div></div>`);
+            expect(await extractTrackLyrics(page.locator('.accordion-item'))).toBe('First line\nLast line');
+        } finally { await browser.close(); }
+    }, 10000);
+
     it('does not collapse track panels that are already expanded', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

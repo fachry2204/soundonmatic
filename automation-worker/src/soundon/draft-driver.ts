@@ -2301,11 +2301,9 @@ async function setSearchFieldValue(
                                 entitySelected = true;
                                 break;
                             }
-                            const entityOption = page
-                                .locator("[artistname]:visible")
-                                .filter({ hasText: exactValue });
-                            if (await entityOption.count()) {
-                                await clickEntityControl(entityOption.first());
+                            const entityOption = await findArtistAttributeOption(entityScope, value);
+                            if (entityOption) {
+                                await clickEntityControl(entityOption);
                                 entitySelected = true;
                                 break;
                             }
@@ -2764,6 +2762,15 @@ async function resilientClick(locator: Locator): Promise<void> {
     }
 }
 
+async function findArtistAttributeOption(scope: Locator, value: string): Promise<Locator | null> {
+    const candidates = scope.locator('[artistname]:visible');
+    const index = await candidates.evaluateAll((elements, expected) => {
+        const normalize = (text: string) => text.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+        return elements.findIndex(element => normalize(element.getAttribute('artistname') || element.textContent || '') === normalize(expected));
+    }, value);
+    return index < 0 ? null : candidates.nth(index);
+}
+
 /** Entity controls must receive real pointer events, even in a scrolled modal.
  * Never force-click or use HTMLElement.click(): Semi may only commit on mousedown.
  * Retry only a failed click, never a successful Submit or draft creation.
@@ -2773,7 +2780,14 @@ export async function clickEntityControl(locator: Locator): Promise<void> {
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             await locator.waitFor({ state: 'visible', timeout: 3000 });
-            await locator.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+            await locator.evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                // Scrolling an already visible option can make SoundOn close
+                // its anchored dropdown before the pointer event reaches it.
+                if (rect.top < 0 || rect.left < 0 || rect.bottom > innerHeight || rect.right > innerWidth) {
+                    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+                }
+            });
             await locator.click({ timeout: 3000 });
             return;
         } catch (error) {

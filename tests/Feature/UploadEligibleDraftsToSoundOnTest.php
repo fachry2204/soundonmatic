@@ -135,7 +135,7 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
             ->test(Dashboard::class)
             ->call('forceDuplicateUpload', $duplicate->id)
             ->assertSet('operationError', null)
-            ->assertSee('Rilisan Duplikat diantrikan untuk tetap di-upload ke SoundOn.');
+            ->assertSee('Rilisan Duplikat diantrikan untuk tetap di-upload ke Aggregator.');
 
         $duplicate->refresh();
         $this->assertSame('queued', $duplicate->status->value);
@@ -153,7 +153,7 @@ class UploadEligibleDraftsToSoundOnTest extends TestCase
         Livewire::actingAs($admin)
             ->test(Dashboard::class)
             ->assertSee('Upload otomatis aktif')
-            ->assertSee('Semua rilisan nonduplikat langsung di-upload ke SoundOn')
+            ->assertSee('Semua rilisan nonduplikat langsung di-upload ke Aggregator')
             ->assertDontSee('Upload pilihan (0)')
             ->assertDontSee('Centang rilisan pada tabel');
     }

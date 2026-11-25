@@ -17,7 +17,7 @@ class ReadableReleaseErrorTest extends TestCase
     {
         $result = ReadableReleaseError::explain('SOUNDFRESH_REVIEW_FAILED', 'SOUNDFRESH_REVIEW_FAILED:locator.click: Timeout');
         $this->assertSame('Pembaruan status Soundfresh gagal', $result['title']);
-        $this->assertStringContainsString('Draft SoundOn sudah tersimpan', $result['reason']);
+        $this->assertStringContainsString('Draft Aggregator sudah tersimpan', $result['reason']);
         $this->assertStringContainsString('checkpoint', $result['action']);
     }
 
@@ -32,7 +32,7 @@ class ReadableReleaseErrorTest extends TestCase
     {
         $result = ReadableReleaseError::explain('SOUNDON_CONTRIBUTOR_NOT_PERSISTED',
             'SOUNDON_CONTRIBUTOR_NOT_PERSISTED:Primary artists:M.Vaganzaee:stage=submit_verification:errors=Artist name cannot contain URLs or website links.');
-        $this->assertSame('Nama artis ditolak validasi SoundOn', $result['title']);
+        $this->assertSame('Nama artis ditolak validasi Aggregator', $result['title']);
         $this->assertStringContainsString('M.Vaganzaee', $result['reason']);
         $this->assertStringContainsString('tanda titik', $result['action']);
         $this->assertStringContainsString('status Soundfresh belum diubah', $result['action']);
@@ -41,7 +41,7 @@ class ReadableReleaseErrorTest extends TestCase
     public function test_monetization_failure_has_specific_explanation_even_for_old_ui_changed_code(): void
     {
         $result = ReadableReleaseError::explain('UI_CHANGED', 'Detail teknis: SOUNDON_MONETIZATION_NOT_ENABLED:YouTube Content ID');
-        $this->assertSame('Pengaturan monetisasi SoundOn belum tersimpan', $result['title']);
+        $this->assertSame('Pengaturan monetisasi Aggregator belum tersimpan', $result['title']);
         $this->assertStringContainsString('YouTube Content ID', $result['reason']);
         $this->assertStringContainsString('kelayakan genre', $result['action']);
     }
@@ -51,8 +51,8 @@ class ReadableReleaseErrorTest extends TestCase
             'SOUNDON_CONTRIBUTOR_NOT_PERSISTED',
             'Detail teknis: SOUNDON_CONTRIBUTOR_NOT_PERSISTED:Primary artists:Zenal Farell:stage=verify_after_submit:role=none',
         );
-        $this->assertSame('Kredit SoundOn belum tersimpan', $result['title']);
-        $this->assertStringContainsString('SoundOn', $result['reason']);
+        $this->assertSame('Kredit Aggregator belum tersimpan', $result['title']);
+        $this->assertStringContainsString('Aggregator', $result['reason']);
         $this->assertStringContainsString('Zenal Farell', $result['reason']);
         $this->assertStringContainsString('Artis utama', $result['reason']);
         $this->assertStringNotContainsString('stage=', $result['reason']);
@@ -73,7 +73,7 @@ class ReadableReleaseErrorTest extends TestCase
             'Field tidak ditemukan. Detail teknis: SOUNDON_UI_CHANGED:field:Previously released?',
         );
 
-        $this->assertSame('Pengisian metadata SoundOn terhenti', $result['title']);
+        $this->assertSame('Pengisian metadata Aggregator terhenti', $result['title']);
         $this->assertStringContainsString('Previously released?', $result['reason']);
         $this->assertStringContainsString('belum mulai diunggah', $result['action']);
     }
@@ -85,7 +85,7 @@ class ReadableReleaseErrorTest extends TestCase
             'SoundOn menolak metadata pada form. Detail teknis: Missing required field: Genre',
         );
 
-        $this->assertSame('Pengisian form SoundOn gagal', $result['title']);
+        $this->assertSame('Pengisian form Aggregator gagal', $result['title']);
         $this->assertStringContainsString('bukan file rusak', $result['reason']);
         $this->assertStringContainsString('Genre', $result['action']);
         $this->assertStringContainsString('Perbaiki metadata', $result['action']);

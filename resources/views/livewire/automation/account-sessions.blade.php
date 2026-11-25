@@ -2,7 +2,7 @@
     <x-automation-nav />
     <main class="page-shell">
         <section class="page-heading">
-            <div><div class="eyebrow">Platform connections</div><h1 class="page-title">Pengaturan Platform</h1><p class="page-subtitle">Kelola credential terenkripsi dan kesehatan sesi Soundfresh serta SoundOn. Password tersimpan tidak pernah ditampilkan kembali.</p></div>
+            <div><div class="eyebrow">Platform connections</div><h1 class="page-title">Pengaturan Platform</h1><p class="page-subtitle">Kelola credential terenkripsi dan kesehatan sesi Soundfresh serta Aggregator. Password tersimpan tidak pernah ditampilkan kembali.</p></div>
         </section>
 
         @if ($message)
@@ -46,7 +46,7 @@
         </article>
 
         <div class="grid gap-5 lg:grid-cols-2">
-            @foreach (['soundfresh' => 'Soundfresh', 'soundon' => 'SoundOn'] as $key => $label)
+            @foreach (['soundfresh' => 'Soundfresh', 'soundon' => 'Aggregator'] as $key => $label)
                 @php($account = $accounts->get($key))
                 @php($active = $account?->status === 'active')
                 @php($statusLabel = match ($account?->status) {
@@ -95,7 +95,7 @@
             <header class="panel-header">
                 <div>
                     <h2 class="panel-title">Penyimpanan hasil download</h2>
-                    <p class="panel-copy">Cover Art, Audio Master, dan Audio Clip otomatis dihapus setelah draft SoundOn berhasil disimpan.</p>
+                    <p class="panel-copy">Cover Art, Audio Master, dan Audio Clip otomatis dihapus setelah draft Aggregator berhasil disimpan.</p>
                 </div>
                 <span class="badge badge--success">{{ $downloadFiles }} file · {{ $downloadSize }}</span>
             </header>

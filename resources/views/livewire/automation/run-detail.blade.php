@@ -20,7 +20,7 @@
         </section>
 
         <section class="panel mt-6">
-            <header class="panel-header"><div><h2 class="panel-title">Metadata terintegrasi</h2><p class="panel-copy">Nilai hasil ekstraksi Soundfresh yang disiapkan untuk field SoundOn.</p></div></header>
+            <header class="panel-header"><div><h2 class="panel-title">Metadata terintegrasi</h2><p class="panel-copy">Nilai hasil ekstraksi Soundfresh yang disiapkan untuk field Aggregator.</p></div></header>
             <div class="space-y-4 p-5">
                 @forelse ($jobs->filter(fn ($item) => filled($item->metadata_snapshot_json)) as $metadataJob)
                     @php($metadata = $metadataJob->metadata_snapshot_json)
@@ -40,7 +40,7 @@
                         </div>
                     </details>
                 @empty
-                    <div class="empty-state">Metadata belum berhasil diekstrak. Jalankan atau retry job untuk memproses dan menyimpannya sebagai draft SoundOn.</div>
+                    <div class="empty-state">Metadata belum berhasil diekstrak. Jalankan atau retry job untuk memproses dan menyimpannya sebagai draft Aggregator.</div>
                 @endforelse
             </div>
         </section>

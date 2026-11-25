@@ -62,6 +62,10 @@ final class LoginController extends Controller
         }
 
         $request->session()->regenerate();
+        // A browser login starts a clean monitor as well as a desktop launch.
+        // Keep historical releases and active work intact; hide prior runs
+        // only in this login session, not globally for other operators.
+        $request->session()->put('soundmatic.hidden_monitor_run_ids', \App\Models\AutomationRun::query()->pluck('id')->all());
         User::whereKey(Auth::id())->update(['last_login_at' => now()]);
 
         $defaultRoute = Auth::user()?->can('automation.view')

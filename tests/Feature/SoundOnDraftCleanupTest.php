@@ -45,7 +45,7 @@ final class SoundOnDraftCleanupTest extends TestCase
             'worker.test/v1/soundfresh/protected-scan' => Http::response(['success' => true, 'data' => ['scans' => $scans]]),
             'worker.test/v1/soundon/drafts/delete-one' => Http::response(['success' => true, 'data' => ['deleted' => true]]),
         ]);
-        Livewire::actingAs($user)->test(SoundOnDraftCleanup::class)->call('deleteDraft', '7709712260272785414')->assertSee('dihapus dari SoundOn');
+        Livewire::actingAs($user)->test(SoundOnDraftCleanup::class)->call('deleteDraft', '7709712260272785414')->assertSee('dihapus dari Aggregator');
         Http::assertSentCount(3);
     }
 }

@@ -16,6 +16,54 @@ final class ApplicationUpdateTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_manual_check_shows_a_dismissible_result_for_new_current_and_failed_checks(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+        $this->actingAs($admin);
+        config(['automation.app_version' => '1.1.40', 'automation.bundled_app_version' => '1.1.40']);
+        $mode = 'new';
+        Http::fake(function () use (&$mode) {
+            return $mode === 'error' ? Http::response([], 503)
+                : Http::response(['tag_name' => $mode === 'new' ? 'v9.0.0' : 'v1.1.40', 'assets' => []]);
+        });
+        $page = Livewire::test(ApplicationUpdate::class)->assertSet('showCheckResult', false)
+            ->call('checkUpdateManually')->assertSet('showCheckResult', true)
+            ->assertSee('Update terbaru tersedia')->call('closeCheckResult')->assertSet('showCheckResult', false);
+        $mode = 'current';
+        $page->call('checkUpdateManually')->assertSet('showCheckResult', true)
+            ->assertSee('Aplikasi sudah versi terbaru')->assertSet('checkFailed', false)
+            ->call('closeCheckResult');
+        $mode = 'error';
+        $page->call('checkUpdateManually')->assertSet('showCheckResult', true)
+            ->assertSee('Pemeriksaan update gagal')->assertSet('checkFailed', true);
+    }
+
+    public function test_update_popup_returns_on_a_new_desktop_launch_but_stays_dismissed_in_the_same_session(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Admin');
+        $this->actingAs($admin);
+        config(['automation.app_version' => '1.1.40', 'automation.bundled_app_version' => '1.1.40']);
+        $tag = 'v9.0.0';
+        Http::fake(function () use (&$tag) {
+            return Http::response(['tag_name' => $tag, 'assets' => []]);
+        });
+        \Illuminate\Support\Facades\Cache::forever('soundmatic.desktop-session', 'launch-one');
+        Livewire::test(ApplicationUpdate::class, ['popup' => true])
+            ->call('checkForUpdate', true)->assertSet('showPopup', true)
+            ->call('dismissPopup')->assertSet('showPopup', false)
+            ->call('checkForUpdate', true)->assertSet('showPopup', false);
+        \Illuminate\Support\Facades\Cache::forever('soundmatic.desktop-session', 'launch-two');
+        Livewire::test(ApplicationUpdate::class, ['popup' => true])
+            ->call('checkForUpdate', true)->assertSet('showPopup', true);
+        $tag = 'v1.1.40';
+        Livewire::test(ApplicationUpdate::class, ['popup' => true])
+            ->call('checkForUpdate')->assertSet('showPopup', false)->assertSet('updateAvailable', false);
+    }
+
     public function test_release_version_matches_installer_desktop_and_install_template(): void
     {
         $version = config('automation.bundled_app_version');

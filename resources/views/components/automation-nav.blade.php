@@ -1,6 +1,7 @@
 <div
     wire:ignore
     data-vue-navigation
+    data-logo-url="{{ asset('images/soundfresh-logo.png') }}"
     data-user-name="{{ auth()->user()->name }}"
     data-user-role="{{ auth()->user()->getRoleNames()->first() ?? 'operator' }}"
     data-can-view-dashboard="{{ auth()->user()->can('automation.view') ? '1' : '0' }}"
@@ -16,5 +17,5 @@
     data-logout-url="{{ route('logout') }}"
 ></div>
 @can('automation.retry')
-    <div class="page-shell"><a class="secondary-button" href="{{ route('automation.soundon-drafts') }}">Hapus Draft SoundOn</a></div>
+    <div class="navigation-utility"><a class="secondary-button" href="{{ route('automation.soundon-drafts') }}">Hapus Draft Aggregator</a></div>
 @endcan

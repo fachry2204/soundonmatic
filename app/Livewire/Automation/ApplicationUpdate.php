@@ -22,6 +22,23 @@ final class ApplicationUpdate extends Component
     public bool $showPopup = false;
 
     #[Locked]
+    public bool $showCheckResult = false;
+
+    #[Locked]
+    public bool $checkFailed = false;
+
+    public function checkUpdateManually(): void
+    {
+        $this->checkForUpdate();
+        $this->showCheckResult = true;
+    }
+
+    public function closeCheckResult(): void
+    {
+        $this->showCheckResult = false;
+    }
+
+    #[Locked]
     public ?string $updatedFrom = null;
 
     #[Locked]
@@ -68,6 +85,7 @@ final class ApplicationUpdate extends Component
     public function checkForUpdate(bool $automatic = false): void
     {
         Gate::authorize('sessions.manage');
+        $this->checkFailed = false;
         $repository = (string) config('automation.update_repository', 'fachry2204/soundonmatic');
         try {
             $fetch = fn () => Http::acceptJson()
@@ -83,6 +101,7 @@ final class ApplicationUpdate extends Component
                 throw new \RuntimeException('Respons update tidak valid.');
             }
         } catch (Throwable $error) {
+            $this->checkFailed = true;
             $this->message = 'Gagal cek update dari GitHub. Periksa koneksi internet lalu coba lagi.';
             $this->updateAvailable = false;
 
@@ -115,7 +134,8 @@ final class ApplicationUpdate extends Component
             $this->showPopup = false;
         }
         if ($this->popup && $this->updateAvailable
-            && (! $automatic || session('soundmatic.update-dismissed') !== $this->latestVersion)) {
+            && (! $automatic || session('soundmatic.update-dismissed') !== $this->latestVersion
+                || session('soundmatic.update-dismissed-session', 'web') !== Cache::get('soundmatic.desktop-session', 'web'))) {
             $this->showPopup = true;
         }
 
@@ -243,6 +263,7 @@ final class ApplicationUpdate extends Component
         // Derive dismissal keys from trusted data, not editable Livewire properties.
         if ($this->latestVersion) {
             session()->put('soundmatic.update-dismissed', $this->latestVersion);
+            session()->put('soundmatic.update-dismissed-session', Cache::get('soundmatic.desktop-session', 'web'));
         } elseif ($this->completionId) {
             session()->put('soundmatic.update-completed', $this->completionId);
         }

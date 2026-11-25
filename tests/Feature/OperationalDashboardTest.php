@@ -189,7 +189,14 @@ class OperationalDashboardTest extends TestCase
             ->assertDontSee('Rilisan Gagal')
             ->call('setReleaseTab', 'failed')
             ->assertSee('Rilisan Gagal')
-            ->assertDontSee('Rilisan Berhasil');
+            ->assertDontSee('Rilisan Berhasil')
+            ->call('setReleaseTab', 'queued')
+            ->assertSet('releaseTab', 'queued')
+            ->assertDontSee('Rilisan Gagal')
+            ->assertDontSee('Rilisan Berhasil')
+            ->call('setReleaseTab', 'all')
+            ->assertSee('Rilisan Gagal')
+            ->assertSee('Rilisan Berhasil');
     }
 
     public function test_retry_marks_release_for_fresh_soundon_duplicate_check(): void

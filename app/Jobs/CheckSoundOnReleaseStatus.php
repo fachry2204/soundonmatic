@@ -147,7 +147,16 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                     'soundon_check_progress' => 100, 'soundon_check_finished_at' => now(),
                 ]);
                 if ($upc !== '' && count($isrcs) >= max(1, (int) $job->track_count)) {
-                    VerifySoundfreshReleaseIdentifiers::dispatch($job->id);
+                    // Commit this release before moving on to the next check.
+                    // Queueing on status-checks puts verification behind every
+                    // remaining release in a large scan.
+                    $claimed = ReleaseJob::query()->whereKey($job->id)
+                        ->where(fn ($query) => $query->whereNull('soundfresh_verify_status')
+                            ->orWhereNotIn('soundfresh_verify_status', ['sending', 'rejecting']))
+                        ->update(['soundfresh_verify_status' => 'sending', 'soundfresh_verify_error' => null]);
+                    if ($claimed) {
+                        (new VerifySoundfreshReleaseIdentifiers($job->id))->handle($worker, $sessions);
+                    }
                 }
             }
         } catch (Throwable $exception) {

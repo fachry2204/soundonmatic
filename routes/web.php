@@ -29,6 +29,8 @@ Route::middleware('guest')->group(function () {
 });
 
 Route::middleware('auth')->group(function () {
+    Route::get('/automation/progress', \App\Http\Controllers\AutomationProgressController::class)
+        ->middleware('permission:automation.view|release-status.view')->name('automation.progress');
     Route::get('/', Dashboard::class)->middleware('permission:automation.view')->name('automation.dashboard');
     Route::get('/runs/{run}', RunDetail::class)->middleware('permission:automation.view')->name('automation.runs.show');
     Route::get('/mappings', MetadataMappings::class)->middleware('permission:mappings.manage')->name('automation.mappings');
