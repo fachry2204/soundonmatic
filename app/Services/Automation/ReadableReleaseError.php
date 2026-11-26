@@ -4,9 +4,56 @@ namespace App\Services\Automation;
 
 final class ReadableReleaseError
 {
+    public static function displayText(?string $text): string
+    {
+        return preg_replace('/\bsoundon\b/i', 'Aggregator', (string) $text);
+    }
+
     public static function explain(?string $code, ?string $message): array
     {
+        return array_map(self::displayText(...), self::explainOriginal($code, $message));
+    }
+
+    private static function explainOriginal(?string $code, ?string $message): array
+    {
         $message = (string) $message;
+        if (in_array($code, ['UI_INTERACTION_TIMEOUT', 'UI_CHANGED'], true)
+            || str_contains($message, 'entity_control_not_clickable')) {
+            $field = null;
+            foreach (['Release date' => 'tanggal rilis', 'Primary artists' => 'artis utama',
+                'Songwriters' => 'penulis lagu', 'Lyricists' => 'penulis lirik',
+                'Previously released?' => 'keterangan apakah lagu pernah dirilis',
+                'Featured artists' => 'artis pendukung'] as $label => $translation) {
+                if (stripos($message, $label) !== false) {
+                    $field = $translation;
+                    break;
+                }
+            }
+            $blocked = str_contains(strtolower($message), 'intercepts pointer events');
+            $dialogTitle = null;
+            if (preg_match('/blocking_dialog_title=("(?:\\\\.|[^"\\\\])*");/', $message, $match)) {
+                $dialogTitle = json_decode($match[1], true);
+                $blocked = true;
+            }
+            if ($blocked || str_contains($message, 'entity_control_not_clickable')) {
+                return [
+                    'title' => $blocked ? 'Isian tertutup jendela lain' : 'Isian belum bisa diklik',
+                    'reason' => 'Sistem berhenti saat mencoba membuka '.($field ? 'kolom '.$field : 'salah satu isian').' di Aggregator. '
+                        .($blocked ? ($dialogTitle ? 'Jendela “'.$dialogTitle.'” masih terbuka dan menghalangi klik.' : 'Ada jendela atau lapisan tampilan di atas kolom tersebut yang menghalangi klik. Nama jendelanya tidak tercatat pada laporan ini.')
+                            : 'Kolom tersebut belum bisa diklik sampai batas waktu tunggu habis. Penyebab pastinya belum dapat dipastikan dari laporan ini.'),
+                    'action' => 'Buka halaman rilisan di Aggregator. Tutup jendela pop-up yang masih terbuka atau selesaikan isian di dalamnya, '
+                        .'lalu pastikan '.($field ? 'kolom '.$field : 'isian yang dituju').' dapat diklik. Setelah itu tekan Retry di aplikasi. '
+                        .'Periksa draft yang sudah ada sebelum membuat rilisan baru. Pesan ini tidak menunjukkan bahwa file audio rusak.',
+                ];
+            }
+            if ($code === 'UI_INTERACTION_TIMEOUT') {
+                return [
+                    'title' => 'Tampilan Aggregator belum merespons',
+                    'reason' => 'Sistem menunggu tombol atau isian di Aggregator, tetapi belum bisa melanjutkan sampai batas waktu habis. Laporan ini belum memastikan penyebabnya.',
+                    'action' => 'Buka halaman rilisan di Aggregator, periksa apakah halaman sudah selesai dimuat dan apakah ada pop-up yang perlu ditutup. Setelah halaman siap, tekan Retry. Periksa draft yang sudah tersimpan terlebih dahulu.',
+                ];
+            }
+        }
         if (in_array($code, ['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'], true)) {
             return [
                 'title' => 'Pencegahan draft ganda aktif',
@@ -56,7 +103,7 @@ final class ReadableReleaseError
             return [
                 'title' => 'Pengaturan monetisasi Aggregator belum tersimpan',
                 'reason' => 'Sumber: form Aggregator. Opsi “'.trim($option[1] ?? 'Monetisasi').'” belum terkonfirmasi aktif setelah dipilih.',
-                'action' => 'Periksa kelayakan genre dan keterangan pada opsi Aggregator. Opsi yang dinonaktifkan Aggregator dilewati dengan peringatan; opsi aktif yang gagal tersimpan memerlukan pemeriksaan. Ini bukan bukti file audio rusak.',
+                'action' => 'Tekan Retry untuk melanjutkan penyimpanan draft. Opsi monetisasi yang tidak tersedia atau belum berhasil diaktifkan akan dicatat sebagai peringatan, sehingga proses dapat dilanjutkan. Periksa pengaturan monetisasi pada draft sebelum distribusi. Ini bukan bukti file audio rusak.',
             ];
         }
         if (preg_match('/SOUNDON_UI_CHANGED:(?:blocking_dialog|stale_dialog):([^\r\n]+)/', $message, $match)) {

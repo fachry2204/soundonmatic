@@ -5,6 +5,38 @@ use PHPUnit\Framework\TestCase;
 
 class ReadableReleaseErrorTest extends TestCase
 {
+    public function test_blocking_dialog_is_named_when_the_worker_identifies_its_title(): void
+    {
+        $result = ReadableReleaseError::explain('UI_CHANGED',
+            'SOUNDON_UI_CHANGED:entity_control_not_clickable:blocking_dialog_title="Primary artists";Release date: intercepts pointer events');
+        $this->assertStringContainsString('Jendela “Primary artists”', $result['reason']);
+        $this->assertStringContainsString('tanggal rilis', $result['reason']);
+        $this->assertStringNotContainsString('blocking_dialog_title', implode(' ', $result));
+    }
+    public function test_release_date_blocked_by_popup_is_explained_without_locator_jargon(): void
+    {
+        $result = ReadableReleaseError::explain('UI_INTERACTION_TIMEOUT',
+            "SOUNDON_UI_CHANGED:entity_control_not_clickable:locator.click: Timeout 3000ms exceeded. "
+            ."locator('.soundon-formik-field-label').filter({ hasText: 'Release date' }) "
+            .'<div role="none" class="semi-modal-wrap semi-modal-wrap-center"> intercepts pointer events');
+        $this->assertSame('Isian tertutup jendela lain', $result['title']);
+        $this->assertStringContainsString('tanggal rilis', $result['reason']);
+        $this->assertStringContainsString('menghalangi klik', $result['reason']);
+        $this->assertStringContainsString('Tutup jendela pop-up', $result['action']);
+        $this->assertStringContainsString('Retry', $result['action']);
+        foreach (['locator', 'semi-modal', '3000ms', 'intercepts pointer events'] as $technicalTerm) {
+            $this->assertStringNotContainsString($technicalTerm, implode(' ', $result));
+        }
+    }
+
+    public function test_timeout_does_not_invent_a_popup_or_network_failure_without_evidence(): void
+    {
+        $result = ReadableReleaseError::explain('UI_INTERACTION_TIMEOUT', 'locator.waitFor: Timeout 3000ms exceeded');
+        $this->assertStringContainsString('belum memastikan penyebabnya', $result['reason']);
+        $this->assertStringNotContainsString('koneksi terputus', $result['reason']);
+        $this->assertStringNotContainsString('menghalangi klik', $result['reason']);
+    }
+
     public function test_draft_guards_explain_upload_was_blocked_without_deleting_drafts(): void
     {
         foreach (['DRAFT_CREATION_IN_PROGRESS', 'DRAFT_LOOKUP_UNCONFIRMED'] as $code) {
@@ -43,7 +75,8 @@ class ReadableReleaseErrorTest extends TestCase
         $result = ReadableReleaseError::explain('UI_CHANGED', 'Detail teknis: SOUNDON_MONETIZATION_NOT_ENABLED:YouTube Content ID');
         $this->assertSame('Pengaturan monetisasi Aggregator belum tersimpan', $result['title']);
         $this->assertStringContainsString('YouTube Content ID', $result['reason']);
-        $this->assertStringContainsString('kelayakan genre', $result['action']);
+        $this->assertStringContainsString('Retry untuk melanjutkan penyimpanan draft', $result['action']);
+        $this->assertStringContainsString('dicatat sebagai peringatan', $result['action']);
     }
     public function test_credit_persistence_error_identifies_the_field_and_name_without_claiming_the_profile_is_missing(): void
     {

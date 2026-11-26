@@ -67,12 +67,19 @@ describe('SoundOn monetization eligibility', () => {
         } finally { await browser.close(); }
     }, 10000);
 
-    it('does not silently skip an enabled control which fails to save', async () => {
+    it('continues toward saving the draft with a warning when an enabled control fails to save', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         try {
             const page = await browser.newPage();
-            await page.setContent('<button role="switch" aria-checked="false">YouTube</button>');
-            await expect(enableMonetizationOption(page, page.getByRole('switch'), 'YouTube Content ID')).rejects.toThrow('SOUNDON_MONETIZATION_NOT_ENABLED:YouTube Content ID');
-        } finally { await browser.close(); }
+            await page.setContent(`<section><h3>YouTube Content ID</h3><button role="switch" aria-checked="false">YouTube</button></section>
+                <button id="save" onclick="document.body.dataset.saved='yes'">Save to my drafts</button>`);
+            await enableStandardMonetization(page, '');
+            await page.locator('#save').click();
+            expect(await page.locator('body').getAttribute('data-saved')).toBe('yes');
+            expect(await page.getByRole('switch').isChecked()).toBe(false);
+            expect(warning).toHaveBeenCalledWith(expect.stringContaining('monetization_option_not_enabled'));
+            expect(warning).toHaveBeenCalledWith(expect.stringContaining('Penyimpanan draft tetap dilanjutkan'));
+        } finally { warning.mockRestore(); await browser.close(); }
     }, 10000);
 });

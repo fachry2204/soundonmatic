@@ -140,7 +140,7 @@ final class AutomaticApplicationUpdateTest extends TestCase
             'idempotency_key' => 'update-completed', 'status' => 'completed',
             'soundon_draft_id' => 'draft-preserved',
         ]);
-        foreach (['release-automation', 'status-checks', 'unrelated'] as $queue) {
+        foreach (['release-automation', 'status-checks', 'soundfresh-rejects', 'unrelated'] as $queue) {
             DB::table('jobs')->insert(['queue' => $queue, 'payload' => '{}', 'attempts' => 0,
                 'available_at' => time(), 'created_at' => time()]);
         }

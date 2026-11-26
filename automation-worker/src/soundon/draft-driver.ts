@@ -694,18 +694,21 @@ export async function selectAlbumTrack(page: Page, filename: string): Promise<vo
     await target.scrollIntoViewIfNeeded();
 }
 
-export async function continueWithCurrentReleaseDate(page: Page): Promise<void> {
+export async function continueWithCurrentReleaseDate(page: Page, waitForAppearance = true): Promise<void> {
     const warning = page
         .getByText(/^Release Date Too (?:Soon|Far Away)$/i, { exact: true })
         .filter({ visible: true });
-    const appeared = await warning
+    const appeared = waitForAppearance ? await warning
         .last()
         .waitFor({ state: "visible", timeout: 3_000 })
         .then(() => true)
-        .catch(() => false);
+        .catch(() => false) : await warning.last().isVisible().catch(() => false);
     if (!appeared) return;
 
-    const dialog = page.getByRole("dialog").filter({ hasText: /Release Date Too (?:Soon|Far Away)/i }).last();
+    // Some Semi versions omit role="dialog". Scope the action to the known
+    // warning rather than clicking a similarly named button elsewhere.
+    const dialog = page.locator('[role="dialog"],.semi-modal,.semi-modal-content')
+        .filter({ hasText: /Release Date Too (?:Soon|Far Away)/i }).filter({ visible: true }).last();
     const continuation = dialog
         .getByRole("button", { name: "No, continue with this date", exact: true })
         .filter({ visible: true })
@@ -1297,17 +1300,20 @@ export async function enableMonetizationOption(page: Page, toggle: Locator, opti
                     || element.getAttribute('title') || element.parentElement?.getAttribute('title') || '';
             });
             const tooltip = await page.getByRole('tooltip').filter({ visible: true }).allTextContents();
-            const detail = (reason || tooltip.join(' ') || 'SoundOn menonaktifkan opsi ini untuk rilisan ini.').replace(/\s+/g, ' ').trim();
-            const warning = `${option}: tidak diaktifkan oleh SoundOn. ${detail}`;
+            const detail = (reason || tooltip.join(' ') || 'Aggregator menonaktifkan opsi ini untuk rilisan ini.').replace(/\bSoundOn\b/gi, 'Aggregator').replace(/\s+/g, ' ').trim();
+            const warning = `${option}: tidak diaktifkan oleh Aggregator. ${detail} Penyimpanan draft tetap dilanjutkan tanpa opsi ini.`;
             optionalFieldWarnings.set(page, [...(optionalFieldWarnings.get(page) ?? []), warning]);
-            console.warn(JSON.stringify({ event: 'monetization_option_unavailable', option, source: 'SoundOn', reason: detail }));
+            console.warn(JSON.stringify({ event: 'monetization_option_unavailable', option, source: 'Aggregator', reason: detail }));
             return false;
         }
         await toggle.click({ timeout: 3000 }).catch(() => undefined);
         await page.waitForTimeout(500);
         if (await toggle.isChecked()) return true;
     }
-    throw new Error(`SOUNDON_MONETIZATION_NOT_ENABLED:${option}`);
+    const warning = `${option}: belum terkonfirmasi aktif setelah 3 percobaan. Penyimpanan draft tetap dilanjutkan; periksa pengaturan monetisasi pada draft sebelum distribusi.`;
+    optionalFieldWarnings.set(page, [...(optionalFieldWarnings.get(page) ?? []), warning]);
+    console.warn(JSON.stringify({ event: 'monetization_option_not_enabled', option, source: 'Aggregator', reason: warning }));
+    return false;
 }
 
 export async function enableStandardMonetization(
@@ -1835,6 +1841,7 @@ export async function selectCalendarDate(input: Locator, isoDate: string): Promi
     const targetMonth = Number(match[2]);
     const targetDay = Number(match[3]);
     const page = input.page();
+    await continueWithCurrentReleaseDate(page, false);
     // Semi's readonly input can have pointer-events:none. Playwright then
     // retries clicking it forever because its own wrapper receives the hit.
     // Click the owning trigger with real pointer events; never force-click the
@@ -2777,6 +2784,7 @@ async function findArtistAttributeOption(scope: Locator, value: string): Promise
  */
 export async function clickEntityControl(locator: Locator): Promise<void> {
     let failure: unknown;
+    let blockingDialogTitle: string | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             await locator.waitFor({ state: 'visible', timeout: 3000 });
@@ -2793,10 +2801,23 @@ export async function clickEntityControl(locator: Locator): Promise<void> {
         } catch (error) {
             failure = error;
             if (locator.page().isClosed()) throw error;
+            // A date warning may appear after the pre-flight check while the
+            // click is waiting. Resolve only this known warning, preserving
+            // the requested date and any unfinished artist/credit editor.
+            await continueWithCurrentReleaseDate(locator.page(), false);
+            blockingDialogTitle = await locator.evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                const dialog = hit?.closest('[role="dialog"],.semi-modal-content,.semi-modal,.semi-modal-wrap');
+                if (!dialog || dialog.contains(element)) return null;
+                const title = dialog.querySelector('.semi-modal-title,[role="heading"],h1,h2,h3')?.textContent
+                    || dialog.getAttribute('aria-label') || 'Dialog tanpa judul';
+                return title.replace(/\s+/g, ' ').trim().slice(0, 140);
+            }).catch(() => null);
             await locator.page().waitForTimeout(200 * (attempt + 1));
         }
     }
-    throw new Error(`SOUNDON_UI_CHANGED:entity_control_not_clickable:${failure instanceof Error ? failure.message : String(failure)}`);
+    throw new Error(`SOUNDON_UI_CHANGED:entity_control_not_clickable:${blockingDialogTitle ? `blocking_dialog_title=${JSON.stringify(blockingDialogTitle)};` : ''}${failure instanceof Error ? failure.message : String(failure)}`);
 }
 
 export async function waitForEntityCard(

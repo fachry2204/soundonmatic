@@ -47,7 +47,7 @@ final class RecoverInterruptedAutomation extends Command
         // The desktop process owns this queue and has already stopped its old
         // workers before this command runs. Rebuild its pending messages once,
         // removing reserved/orphaned/duplicate messages left by a forced close.
-        DB::table('jobs')->whereIn('queue', ['release-automation', 'status-checks'])->delete();
+        DB::table('jobs')->whereIn('queue', ['release-automation', 'status-checks', 'soundfresh-rejects'])->delete();
 
         if ($this->option('fresh-session')) {
             DB::transaction(function (): void {

@@ -20,7 +20,7 @@ class StopAutomationForUpdate
             ->update(['status' => 'stopped', 'stop_requested_at' => now(), 'finished_at' => now()]);
 
         $status = $system->stopAllWorkers();
-        if (! app()->runningUnitTests() && ($status['worker'] || $status['release_workers'] > 0 || $status['status_workers'] > 0)) {
+        if (! app()->runningUnitTests() && ($status['worker'] || $status['release_workers'] > 0 || $status['status_workers'] > 0 || ($status['reject_workers'] ?? 0) > 0)) {
             throw new RuntimeException('Worker belum berhenti sepenuhnya.');
         }
 
@@ -35,7 +35,7 @@ class StopAutomationForUpdate
             ReleaseJob::query()->whereIn('soundfresh_verify_status', ['sending', 'rejecting'])
                 ->update(['soundfresh_verify_status' => 'failed',
                     'soundfresh_verify_error' => 'Dihentikan untuk update aplikasi.', 'updated_at' => $now]);
-            DB::table('jobs')->whereIn('queue', ['release-automation', 'status-checks'])->delete();
+            DB::table('jobs')->whereIn('queue', ['release-automation', 'status-checks', 'soundfresh-rejects'])->delete();
         });
     }
 }

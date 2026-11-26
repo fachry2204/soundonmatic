@@ -20,10 +20,12 @@ final class RejectSoundfreshRelease implements ShouldQueue
 
     public int $tries = 1;
 
+    public int $timeout = 180;
+
     public function __construct(public readonly string $releaseJobId, public readonly string $reason,
         public readonly bool $failedUpload = false, public readonly ?string $failureFingerprint = null)
     {
-        $this->onQueue('status-checks');
+        $this->onQueue('soundfresh-rejects');
     }
 
     public function handle(PlaywrightClient $worker, SessionManager $sessions): void
@@ -42,12 +44,16 @@ final class RejectSoundfreshRelease implements ShouldQueue
             return;
         }
 
+        if ($job->soundfresh_verify_status !== 'rejecting') return;
+
         try {
+            $job->update(['progress_percent' => 15, 'progress_label' => 'Membuka sesi Soundfresh untuk Reject', 'progress_updated_at' => now()]);
             if (trim($this->reason) === '' || mb_strlen($this->reason) > 3000) throw new RuntimeException('Alasan Reject wajib diisi, maksimal 3000 karakter.');
             $soundfresh = $sessions->ensure(Platform::Soundfresh);
             if ($soundfresh->status === 'manual_auth_required') {
                 throw new RuntimeException('Sesi Soundfresh perlu login ulang dari Pengaturan Platform.');
             }
+            $job->update(['progress_percent' => 50, 'progress_label' => 'Mengirim alasan Reject ke Soundfresh', 'progress_updated_at' => now()]);
             $result = $worker->rejectSoundfreshRelease($job->soundfresh_release_url, $this->reason, $soundfresh->session_state_encrypted);
             if (($result['rejected'] ?? false) !== true) {
                 throw new RuntimeException('Soundfresh tidak mengonfirmasi penolakan rilisan.');
@@ -61,6 +67,7 @@ final class RejectSoundfreshRelease implements ShouldQueue
                 'soundfresh_verify_status' => 'rejected',
                 'soundfresh_verify_error' => null,
                 'soundfresh_rejected_at' => now(),
+                'progress_percent' => 100, 'progress_label' => 'Reject berhasil dikonfirmasi Soundfresh', 'progress_updated_at' => now(),
             ]);
         } catch (Throwable $exception) {
             report($exception);
@@ -68,7 +75,16 @@ final class RejectSoundfreshRelease implements ShouldQueue
             if ($job->soundfresh_verify_status !== 'rejecting') {
                 return;
             }
-            $job->update(['soundfresh_verify_status' => 'failed', 'soundfresh_verify_error' => $exception->getMessage()]);
+            $job->update(['soundfresh_verify_status' => 'failed', 'soundfresh_verify_error' => $exception->getMessage(),
+                'progress_label' => 'Reject gagal — periksa alasan dan coba kembali', 'progress_updated_at' => now()]);
         }
     }
+    public function failed(?Throwable $exception): void
+    {
+        ReleaseJob::query()->whereKey($this->releaseJobId)->where('soundfresh_verify_status', 'rejecting')
+            ->update(['soundfresh_verify_status' => 'failed',
+                'soundfresh_verify_error' => 'Proses Reject berhenti sebelum Soundfresh mengonfirmasi. Periksa status rilisan sebelum mencoba kembali.',
+                'progress_label' => 'Reject terhenti — perlu pemeriksaan', 'progress_updated_at' => now()]);
+    }
+
 }

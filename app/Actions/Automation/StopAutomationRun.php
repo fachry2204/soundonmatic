@@ -51,7 +51,7 @@ final class StopAutomationRun
                     'soundfresh_verify_error' => 'Dihentikan oleh operator.',
                     'updated_at' => $stoppedAt,
                 ]);
-            DB::table('jobs')->whereIn('queue', ['release-automation', 'status-checks'])->delete();
+            DB::table('jobs')->whereIn('queue', ['release-automation', 'status-checks', 'soundfresh-rejects'])->delete();
         });
     }
 }

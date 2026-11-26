@@ -86,12 +86,19 @@ final class Dashboard extends Component
         $this->uploadRejectReason = trim($this->uploadRejectReason);
         $this->validate(['uploadRejectReason' => ['required', 'string', 'max:3000']]);
         abort_unless($this->rejectingUploadJobId, 422);
+        try {
+            app(LocalSystemManager::class)->startRejectionWorker();
+        } catch (Throwable $error) {
+            $this->operationError = 'Reject belum dikirim: '.$error->getMessage();
+            return;
+        }
         $job = DB::transaction(function (): ReleaseJob {
             $job = ReleaseJob::query()->lockForUpdate()->findOrFail($this->rejectingUploadJobId);
             abort_unless(FailedUploadRejection::eligible($job)
                 && hash_equals(FailedUploadRejection::fingerprint($job), (string) $this->rejectFailureFingerprint), 409,
                 'Kondisi rilisan sudah berubah. Periksa ulang sebelum Reject.');
-            $job->update(['soundfresh_verify_status' => 'rejecting', 'soundfresh_verify_error' => null]);
+            $job->update(['soundfresh_verify_status' => 'rejecting', 'soundfresh_verify_error' => null,
+                'progress_percent' => 5, 'progress_label' => 'Memproses Reject di Soundfresh', 'progress_updated_at' => now()]);
 
             return $job;
         }, 5);

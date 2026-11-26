@@ -75,7 +75,7 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
             foreach ($jobs as $job) {
                 $match = $matches[$job->id] ?? null;
                 if (! is_array($match)) {
-                    $message = 'Data lagu tidak ada di All Releases SoundOn: '.$job->release_title.($job->artist_name ? ' — '.$job->artist_name : '').'.';
+                    $message = 'Lagu tidak ditemukan di Aggregator: '.$job->release_title.($job->artist_name ? ' — '.$job->artist_name : '').'.';
                     $job->update(['soundon_check_status' => 'not_found', 'soundon_check_progress' => 100,
                         'soundon_check_error' => $message, 'soundon_status_checked_at' => now(), 'soundon_check_finished_at' => now()]);
                     if ($isPreUploadCheck) {
@@ -108,7 +108,7 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
                 };
                 if (! in_array($status, ['under_review', 'delivery', 'approved', 'not_approved', 'live'], true)) {
                     $job->update(['soundon_check_status' => 'failed', 'soundon_check_progress' => 100,
-                        'soundon_check_error' => 'Status SoundOn tidak dikenali: '.($rawStatus !== '' ? $rawStatus : '(kosong)').'.', 'soundon_status_checked_at' => now(),
+                        'soundon_check_error' => 'Status Aggregator tidak dikenali: '.($rawStatus !== '' ? $rawStatus : '(kosong)').'.', 'soundon_status_checked_at' => now(),
                         'soundon_check_finished_at' => now()]);
 
                     continue;
@@ -210,7 +210,7 @@ final class CheckSoundOnReleaseStatus implements ShouldQueue
             ->update([
                 'soundon_check_status' => 'failed',
                 'soundon_check_progress' => 100,
-                'soundon_check_error' => $exception?->getMessage() ?? 'Worker pemeriksaan SoundOn berhenti sebelum proses selesai.',
+                'soundon_check_error' => $exception?->getMessage() ?? 'Worker pemeriksaan Aggregator berhenti sebelum proses selesai.',
                 'soundon_status_checked_at' => now(),
                 'soundon_check_finished_at' => now(),
             ]);

@@ -18,18 +18,20 @@ final class LocalSystemManager
         return Cache::remember('soundmatic.system-display:'.md5(base_path()), 3, fn () => $this->status());
     }
 
-    /** @return array{server: bool, worker: bool, release_workers: int, status_workers: int, queues_online: bool, worker_slots: int, browser_slots: int} */
+    /** @return array{server: bool, worker: bool, release_workers: int, status_workers: int, reject_workers: int, queues_online: bool, worker_slots: int, browser_slots: int} */
     public function status(): array
     {
         $this->processList = null;
         $releaseWorkers = $this->queueWorkerCount('release-automation');
         $statusWorkers = $this->queueWorkerCount('status-checks');
+        $rejectWorkers = $this->queueWorkerCount('soundfresh-rejects');
 
         $status = [
             'server' => $this->serverIsOnline(),
             'worker' => $this->workerIsOnline(),
             'release_workers' => $releaseWorkers,
             'status_workers' => $statusWorkers,
+            'reject_workers' => $rejectWorkers,
             'queues_online' => $releaseWorkers > 0 && $statusWorkers > 0,
             'worker_slots' => (int) config('automation.release_queue_workers', 3),
             'browser_slots' => (int) config('automation.browser_concurrency', 3),
@@ -136,6 +138,26 @@ final class LocalSystemManager
         if ($this->queueWorkerCount('status-checks') === 0) {
             $this->startQueueWorker('status-checks', 'status-worker.log', 'status-worker-error.log');
         }
+        if ($this->queueWorkerCount('soundfresh-rejects') === 0) {
+            $this->startQueueWorker('soundfresh-rejects', 'reject-worker.log', 'reject-worker-error.log');
+        }
+    }
+
+    /** Start a dedicated consumer so confirmed rejections never wait behind status scans. */
+    public function startRejectionWorker(): void
+    {
+        if (app()->environment('testing') || PHP_OS_FAMILY !== 'Windows') return;
+        if (! $this->workerIsOnline()) {
+            $this->startWorker();
+            $deadline = microtime(true) + 10;
+            while (! $this->workerIsOnline()) {
+                if (microtime(true) >= $deadline) throw new RuntimeException('Browser worker belum siap mengirim Reject. Coba kembali.');
+                usleep(200_000);
+            }
+        }
+        if ($this->queueWorkerCount('soundfresh-rejects') === 0) {
+            $this->startQueueWorker('soundfresh-rejects', 'reject-worker.log', 'reject-worker-error.log');
+        }
     }
 
     /** Stop every local queue process for the requested queues, including an older process without a PID file. */
@@ -145,7 +167,7 @@ final class LocalSystemManager
             return;
         }
 
-        foreach ($queues ?? ['release-automation', 'status-checks'] as $queue) {
+        foreach ($queues ?? ['release-automation', 'status-checks', 'soundfresh-rejects'] as $queue) {
             $pidFiles = [$this->queueWorkerPidFile((string) $queue)];
             if ($queue === 'release-automation') {
                 $pidFiles[] = storage_path('app/release-queue-worker-2.pid');
@@ -287,7 +309,7 @@ final class LocalSystemManager
 
     private function startQueueWorker(string $queue, string $outputLog, string $errorLog, int $slot = 0): void
     {
-        $pidFile = $this->queueWorkerPidFile(str_contains($queue, 'release-automation') ? 'release-automation' : 'status-checks');
+        $pidFile = $this->queueWorkerPidFile(str_contains($queue, 'release-automation') ? 'release-automation' : $queue);
         if ($slot > 0) $pidFile = storage_path('app/release-queue-worker-'.($slot + 1).'.pid');
         $this->startWindowsArtisanProcess(
             ['queue:work', 'database', '--queue='.$queue, '--sleep=2', '--tries=3', '--timeout=2700'],
@@ -299,7 +321,11 @@ final class LocalSystemManager
 
     private function queueWorkerPidFile(string $queue): string
     {
-        return storage_path('app/'.($queue === 'release-automation' ? 'release-queue-worker.pid' : 'status-queue-worker.pid'));
+        return storage_path('app/'.match ($queue) {
+            'release-automation' => 'release-queue-worker.pid',
+            'soundfresh-rejects' => 'reject-queue-worker.pid',
+            default => 'status-queue-worker.pid',
+        });
     }
 
     private function startWorker(): void

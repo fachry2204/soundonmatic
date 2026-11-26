@@ -130,6 +130,7 @@ internal static class Program
             StartQueueWorker("release-automation,default", "release-queue-worker-2.pid", "release-worker.log", "release-worker-error.log");
             StartQueueWorker("release-automation,default", "release-queue-worker-3.pid", "release-worker.log", "release-worker-error.log");
             StartQueueWorker("status-checks", "status-queue-worker.pid", "status-worker.log", "status-worker-error.log");
+            StartQueueWorker("soundfresh-rejects", "reject-queue-worker.pid", "reject-worker.log", "reject-worker-error.log");
             Start("worker", Node(root), ["--env-file=.env", "dist/server.js"], Path.Combine(root, "automation-worker"), automationKey);
         }
 
@@ -300,7 +301,7 @@ internal static class Program
 
         private static readonly string[] WorkerPidFiles = [
             "desktop-app.pid", "desktop-scheduler.pid", "automation-worker-desktop.pid",
-            "automation-worker.pid", "release-queue-worker.pid", "release-queue-worker-2.pid", "release-queue-worker-3.pid", "status-queue-worker.pid", "laravel-server.pid",
+            "automation-worker.pid", "release-queue-worker.pid", "release-queue-worker-2.pid", "release-queue-worker-3.pid", "status-queue-worker.pid", "reject-queue-worker.pid", "laravel-server.pid",
         ];
 
         private void KillBundledProcessTree(int processId)
@@ -345,7 +346,7 @@ internal static class Program
                     try { if (File.Exists(file)) File.Delete(file); } catch { }
             }
 
-            foreach (var pattern in new[] { "automation-worker-*.cmd", "browser-worker-*.cmd", "release-queue-worker-*.cmd", "status-queue-worker-*.cmd", "laravel-server-*.cmd" })
+            foreach (var pattern in new[] { "automation-worker-*.cmd", "browser-worker-*.cmd", "release-queue-worker-*.cmd", "status-queue-worker-*.cmd", "reject-queue-worker-*.cmd", "laravel-server-*.cmd" })
                 foreach (var file in Directory.EnumerateFiles(appDirectory, pattern))
                     try { File.Delete(file); } catch { }
         }
@@ -357,7 +358,7 @@ internal static class Program
 
         private bool QueueRunning(string queue)
         {
-            var pidFile = Path.Combine(root, "storage", "app", queue == "status-checks" ? "status-queue-worker.pid" : "release-queue-worker.pid");
+            var pidFile = Path.Combine(root, "storage", "app", queue switch { "status-checks" => "status-queue-worker.pid", "soundfresh-rejects" => "reject-queue-worker.pid", _ => "release-queue-worker.pid" });
             if (File.Exists(pidFile) && int.TryParse(File.ReadAllText(pidFile).Trim(), out var pid))
             {
                 try { return !Process.GetProcessById(pid).HasExited; } catch { try { File.Delete(pidFile); } catch { } }

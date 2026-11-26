@@ -28,14 +28,15 @@ document.querySelectorAll('[data-live-progress]').forEach((root) => {
             if (!response.ok) { delay = 3000; return; }
             const { jobs } = await response.json();
             for (const job of jobs) {
-                if (job.status !== 'running' || job.progress_percent == null) continue;
+                const rejecting = ['rejecting', 'rejected'].includes(job.soundfresh_verify_status) || job.progress_label?.startsWith('Reject');
+                if ((!rejecting && job.status !== 'running') || job.progress_percent == null) continue;
                 const row = rows.find(row => row.dataset.liveJob === job.id);
                 const progress = row?.querySelector('.release-progress');
                 if (!progress) continue;
                 const minimum = { discovered: 5, metadata_extracted: 25, assets_downloaded: 45,
                     soundon_draft_created: 60, metadata_filled: 70, assets_uploaded: 85,
                     draft_saved: 95, soundfresh_reviewed: 95, completed: 100 };
-                const percent = Math.max(minimum[job.checkpoint] ?? 0, Math.min(100, Number(job.progress_percent)));
+                const percent = Math.max(rejecting ? 0 : (minimum[job.checkpoint] ?? 0), Math.min(100, Number(job.progress_percent)));
                 progress.querySelector('.release-progress__bar').style.width = `${percent}%`;
                 progress.querySelector('[role="progressbar"]').setAttribute('aria-valuenow', percent);
                 progress.querySelector('strong').textContent = `${percent}%`;

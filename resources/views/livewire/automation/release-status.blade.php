@@ -1,4 +1,4 @@
-<div wire:poll.3s.keep-alive="pollStatusUpdates" class="status-workspace">
+<div wire:poll.3s.keep-alive="pollStatusUpdates" class="status-workspace" data-live-progress="{{ route('automation.progress') }}">
     <x-automation-nav />
 
     <main class="page-shell">
@@ -25,12 +25,12 @@
         <section class="metric-grid status-metric-strip">
             <button type="button" wire:click="filterBySoundOnStatus('all')" class="metric-card metric-card--filter {{ $soundOnStatus === 'all' ? 'metric-card--active' : '' }}" style="--metric-soft:#eef2ff" aria-pressed="{{ $soundOnStatus === 'all' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l8-4 8 4-8 4-8-4zm0 5l8 4 8-4M4 17l8 4 8-4"/></svg><span class="metric-label">Seluruh rilis diambil</span><span class="metric-value">{{ $totalJobs }}</span><span class="metric-meta">Klik untuk menampilkan seluruh status rilisan</span></button>
             <button type="button" wire:click="filterBySoundOnStatus('under_review')" class="metric-card metric-card--filter {{ $soundOnStatus === 'under_review' ? 'metric-card--active' : '' }}" style="--metric-soft:#eeeeff" aria-pressed="{{ $soundOnStatus === 'under_review' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"/></svg><span class="metric-label">Under Review</span><span class="metric-value">{{ $underReviewJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilisan Under Review</span></button>
-            <button type="button" wire:click="filterByReleaseDate('today')" class="metric-card metric-card--filter {{ $releaseDateFilter === 'today' ? 'metric-card--active' : '' }}" style="--metric-soft:#e8f8f2" aria-pressed="{{ $releaseDateFilter === 'today' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v4m8-4v4M4 10h16M4 5h16v16H4z"/></svg><span class="metric-label">Rilis Hari Ini · Under Review</span><span class="metric-value" style="color:#087f5b">{{ $todayReviewJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilis hari ini yang masih Under Review</span></button>
-            <button type="button" wire:click="filterByReleaseDate('overdue')" class="metric-card metric-card--filter {{ $releaseDateFilter === 'overdue' ? 'metric-card--active' : '' }}" style="--metric-soft:#fff0f2" aria-pressed="{{ $releaseDateFilter === 'overdue' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3v4l8 10v4M16 3v4L8 17v4"/></svg><span class="metric-label">Rilis Terlewat · Under Review</span><span class="metric-value" style="color:#d6334c">{{ $overdueReviewJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilis terlewat yang masih Under Review</span></button>
+            <button type="button" wire:click="filterByReleaseDate('overdue')" class="metric-card metric-card--filter {{ $releaseDateFilter === 'overdue' ? 'metric-card--active' : '' }}" style="--metric-soft:#fff0f2" aria-pressed="{{ $releaseDateFilter === 'overdue' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3v4l8 10v4M16 3v4L8 17v4"/></svg><span class="metric-label">Rilis Terlewat</span><span class="metric-value" style="color:#d6334c">{{ $overdueReviewJobs }}</span><span class="metric-meta">Rilisan Under Review dengan tanggal rilis hari ini atau sebelumnya</span></button>
             <button type="button" wire:click="filterBySoundOnStatus('delivery')" class="metric-card metric-card--filter {{ $soundOnStatus === 'delivery' ? 'metric-card--active' : '' }}" style="--metric-soft:#e8f8f2" aria-pressed="{{ $soundOnStatus === 'delivery' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 15v6h16v-6"/></svg><span class="metric-label">Delivered</span><span class="metric-value" style="color:#087f5b">{{ $deliveredJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilisan Delivered</span></button>
             <button type="button" wire:click="filterBySoundOnStatus('approved')" class="metric-card metric-card--filter {{ $soundOnStatus === 'approved' ? 'metric-card--active' : '' }}" style="--metric-soft:#edf4ff" aria-pressed="{{ $soundOnStatus === 'approved' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 6"/></svg><span class="metric-label">Approved</span><span class="metric-value" style="color:#3159bd">{{ $approvedJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilisan Approved</span></button>
             <button type="button" wire:click="filterBySoundOnStatus('live')" class="metric-card metric-card--filter {{ $soundOnStatus === 'live' ? 'metric-card--active' : '' }}" style="--metric-soft:#e8f8f2" aria-pressed="{{ $soundOnStatus === 'live' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10v10m-4 0h8M8 7a6 6 0 0 0 0 10m8-10a6 6 0 0 1 0 10M5 4a10 10 0 0 0 0 16m14-16a10 10 0 0 1 0 16"/></svg><span class="metric-label">Live</span><span class="metric-value" style="color:#087f5b">{{ $liveJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilisan Live</span></button>
             <button type="button" wire:click="filterBySoundOnStatus('not_approved')" class="metric-card metric-card--filter {{ $soundOnStatus === 'not_approved' ? 'metric-card--active' : '' }}" style="--metric-soft:#fff0f2" aria-pressed="{{ $soundOnStatus === 'not_approved' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8m0-8-8 8M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"/></svg><span class="metric-label">Not Approved</span><span class="metric-value" style="color:#d6334c">{{ $notApprovedJobs }}</span><span class="metric-meta">Klik untuk menampilkan rilisan Not Approved</span></button>
+            <button type="button" wire:click="filterBySoundOnStatus('not_found')" class="metric-card metric-card--filter metric-card--not-found {{ $soundOnStatus === 'not_found' ? 'metric-card--active' : '' }}" aria-pressed="{{ $soundOnStatus === 'not_found' ? 'true' : 'false' }}"><svg class="status-metric-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6"/></svg><span class="metric-label">Tidak Terdeteksi</span><span class="metric-value">{{ $notFoundJobs }}</span><span class="metric-meta">Rilisan yang tidak ditemukan di Aggregator</span></button>
         </section>
 
         <section class="panel monitor-panel">
@@ -45,7 +45,7 @@
                 <div class="release-status-filters">
                     <label class="release-filter release-filter--search"><span>Cari rilisan</span><input wire:model.live.debounce.400ms="search" type="search" placeholder="Judul, artis, ID Soundfresh atau draft"></label>
                     <label class="release-filter"><span>Status pemeriksaan</span><select wire:model.live="status"><option value="all">Semua status</option><option value="queued">Menunggu</option><option value="checking">Sedang diperiksa</option><option value="detected">Terdeteksi</option><option value="not_found">Tidak ditemukan</option><option value="failed">Gagal</option></select></label>
-                    <label class="release-filter"><span>Status Aggregator</span><select wire:model.live="soundOnStatus"><option value="new">Status Baru Diambil</option><option value="all">Semua</option><option value="under_review">Under Review</option><option value="delivery">Delivered</option><option value="approved">Approved</option><option value="not_approved">Not Approved</option><option value="live">Live</option><option value="pending">Belum terdeteksi</option></select></label>
+                    <label class="release-filter"><span>Status Aggregator</span><select wire:model.live="soundOnStatus"><option value="new">Status Baru Diambil</option><option value="all">Semua</option><option value="under_review">Under Review</option><option value="delivery">Delivered</option><option value="approved">Approved</option><option value="not_approved">Not Approved</option><option value="live">Live</option><option value="pending">Belum terdeteksi</option><option value="not_found">Tidak Terdeteksi</option></select></label>
                     <button type="button" wire:click="resetFilters" class="secondary-button" style="height: 40px; margin-bottom: 2px;">Reset</button>
                 </div>
             </div>
@@ -118,20 +118,20 @@
                                 false,
                             );
                         @endphp
-                        <tr wire:key="release-status-{{ $job->id }}">
+                        <tr wire:key="release-status-{{ $job->id }}" data-live-job="{{ $job->id }}" data-live-status="{{ $job->status }}">
                             <td data-label="Pilih"><input type="checkbox" wire:model.live="selectedJobIds" value="{{ $job->id }}" @disabled(!$canVerify) aria-label="Pilih {{ $title }}"></td>
                             <td data-label="Rilisan"><div class="min-w-52"><strong class="text-slate-800">{{ $title }}</strong><p class="mt-1 text-[11px] text-slate-400">{{ $job->artist_name ?: 'Artis tidak tersedia' }}</p></div></td>
                             @php
                                 $soundfreshStatusLabels = ['pending' => 'Pending', 'revision' => 'Revision', 'under_review' => 'Under Review', 'uploading' => 'Uploading', 'rejected' => 'Rejected', 'published' => 'Published', 'draft' => 'Draft', 'verified' => 'Published (Verified)'];
                             @endphp
                             <td data-label="Soundfresh">
-                                <a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer" class="badge badge--success">ID {{ $job->soundfresh_release_id }} ↗</a>
+                                <a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer" class="badge badge--success">ID {{ $job->soundfresh_release_id }}</a>
                                 <p class="mt-1 text-[11px] text-slate-400">Tab: {{ $soundfreshStatusLabels[$job->soundfresh_workflow_status] ?? ucfirst(str_replace('_', ' ', $job->soundfresh_workflow_status ?? 'belum diketahui')) }}</p>
                                 <p class="mt-1 text-[11px] font-medium text-slate-600">Tanggal rilis: {{ $releaseDate?->translatedFormat('d M Y') ?? 'Belum tersedia' }}</p>
                             </td>
                             <td data-label="Aggregator">
                                 @if ($soundOnStatus)
-                                    <a @if($job->soundon_draft_url) href="{{ $job->soundon_draft_url }}" target="_blank" rel="noopener noreferrer" @endif class="badge {{ $soundOnClasses[$soundOnStatus] ?? 'badge--brand' }}">{{ $soundOnLabels[$soundOnStatus] ?? ucfirst(str_replace('_', ' ', $soundOnStatus)) }} @if($job->soundon_draft_url)↗@endif</a>
+                                    <a @if($job->soundon_draft_url) href="{{ $job->soundon_draft_url }}" target="_blank" rel="noopener noreferrer" @endif class="badge {{ $soundOnClasses[$soundOnStatus] ?? 'badge--brand' }}">{{ $soundOnLabels[$soundOnStatus] ?? ucfirst(str_replace('_', ' ', $soundOnStatus)) }}</a>
                                     <p class="mt-1 text-[11px] text-slate-400">Dicek {{ $job->soundon_status_checked_at?->diffForHumans() ?? '—' }}</p>
                                     @if($releaseDate && $releaseDayDistance > 0)
                                         <p class="mt-1 text-[11px] font-semibold text-red-600">Rilis Terlewat · {{ $releaseDayDistance }} hari</p>
@@ -150,7 +150,12 @@
                             <td data-label="ISRC">@if($identifierVisible && count($job->soundon_isrcs_json ?? []))<div class="grid gap-1">@foreach($job->soundon_isrcs_json as $isrc)<span class="font-mono text-xs text-slate-700">{{ $isrc }}</span>@endforeach</div>@else — @endif</td>
                             <td data-label="Pemeriksaan">
                                 <span class="badge {{ $checkClass }}">{{ $checkLabels[$checkStatus] ?? 'Belum diperiksa' }}</span>
-                                @if(in_array($checkStatus, ['queued', 'checking'], true))
+                                @if($verifyStatus === 'rejecting' || $verifyStatus === 'rejected' || str_starts_with((string) $job->progress_label, 'Reject'))
+                                    <div class="release-progress {{ $verifyStatus === 'rejected' ? 'release-progress--success' : '' }}" style="width:100%;margin-top:8px">
+                                        <div class="release-progress__copy"><span>{{ $job->progress_label ?: 'Memproses Reject di Soundfresh' }}</span><strong>{{ $job->progress_percent }}%</strong></div>
+                                        <div class="release-progress__track" role="progressbar" aria-label="Progress Reject {{ $title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $job->progress_percent }}"><div class="release-progress__bar" style="width:{{ $job->progress_percent }}%"></div></div>
+                                    </div>
+                                @elseif(in_array($checkStatus, ['queued', 'checking'], true))
                                     <div class="mt-2 h-2 w-40 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Progress pemeriksaan {{ $title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $job->soundon_check_progress }}">
                                         <div class="h-full rounded-full bg-indigo-500 transition-all duration-500 {{ $checkStatus === 'checking' ? 'animate-pulse' : '' }}" style="width: {{ max(5, (int) $job->soundon_check_progress) }}%"></div>
                                     </div>
@@ -171,7 +176,7 @@
                                     @elseif($soundOnStatus === 'not_approved' && $verifyStatus === 'rejecting')
                                         <button type="button" class="secondary-button release-status-action release-status-action--disabled" disabled aria-disabled="true">Mengirim Reject...</button>
                                     @elseif($soundOnStatus === 'not_approved' && $verifyStatus === 'failed')
-                                        <button type="button" wire:click="openRejectInSoundfresh('{{ $job->id }}')" class="secondary-button release-status-action release-status-action--failed" title="{{ $job->soundfresh_verify_error }}">
+                                        <button type="button" wire:click="openRejectInSoundfresh('{{ $job->id }}')" class="secondary-button release-status-action release-status-action--failed" title="{{ \App\Services\Automation\ReadableReleaseError::displayText($job->soundfresh_verify_error) }}">
                                             Gagal
                                         </button>
                                     @elseif($soundOnStatus === 'not_approved' && filled($job->soundon_rejection_reason))
@@ -188,7 +193,7 @@
                                     @elseif($verifyStatus === 'success')
                                         <button type="button" class="secondary-button release-status-action release-status-action--success" disabled aria-disabled="true" title="UPC dan ISRC berhasil dikirim dan diverifikasi di Soundfresh">Berhasil Dikirim</button>
                                     @elseif($verifyStatus === 'failed')
-                                        <button type="button" wire:click="sendToSoundfresh('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="sendToSoundfresh('{{ $job->id }}')" class="secondary-button release-status-action release-status-action--failed" title="{{ $job->soundfresh_verify_error }}">
+                                        <button type="button" wire:click="sendToSoundfresh('{{ $job->id }}')" wire:loading.attr="disabled" wire:target="sendToSoundfresh('{{ $job->id }}')" class="secondary-button release-status-action release-status-action--failed" title="{{ \App\Services\Automation\ReadableReleaseError::displayText($job->soundfresh_verify_error) }}">
                                             <span wire:loading.remove wire:target="sendToSoundfresh('{{ $job->id }}')">Gagal</span>
                                             <span wire:loading wire:target="sendToSoundfresh('{{ $job->id }}')">Mengirim...</span>
                                         </button>
@@ -200,7 +205,7 @@
                                     @else
                                         <button type="button" class="secondary-button release-status-action release-status-action--disabled" disabled aria-disabled="true" title="Tombol aktif untuk rilisan Uploading setelah UPC dan seluruh ISRC ditemukan">Ubah UPC &amp; ISRC</button>
                                     @endif
-                                    @if($verifyStatus === 'failed' && $job->soundfresh_verify_error)<p class="mt-1 max-w-52 text-[10px] text-red-500" title="{{ $job->soundfresh_verify_error }}">Klik Gagal untuk mencoba kembali</p>@endif
+                                    @if($verifyStatus === 'failed' && $job->soundfresh_verify_error)<p class="mt-1 max-w-52 text-[10px] text-red-500" title="{{ \App\Services\Automation\ReadableReleaseError::displayText($job->soundfresh_verify_error) }}">Klik Gagal untuk mencoba kembali</p>@endif
                                 </div>
                             </td>
                         </tr>
@@ -210,7 +215,11 @@
                                 $rowMessages['Alasan ditolak'] = $job->soundon_rejection_reason ?: 'Belum terbaca; cek status kembali.';
                             }
                             if (filled($job->soundon_check_error)) {
-                                $rowMessages['Error pemeriksaan'] = $job->soundon_check_error;
+                                $rowMessages['Error pemeriksaan'] = str_ireplace(
+                                    ['Data lagu tidak ada di All Releases SoundOn:', 'SoundOn'],
+                                    ['Lagu tidak ditemukan di Aggregator:', 'Aggregator'],
+                                    $job->soundon_check_error,
+                                );
                             }
                             if (filled($job->soundfresh_verify_error)) {
                                 $rowMessages['Error Soundfresh'] = $job->soundfresh_verify_error;
@@ -220,7 +229,7 @@
                             <tr class="release-message-row" wire:key="release-status-message-{{ $job->id }}">
                                 <td colspan="8"><div class="release-message-box" role="note" aria-label="Alasan penolakan atau error {{ $title }}">
                                     @foreach($rowMessages as $messageLabel => $message)
-                                        <p><strong>{{ $messageLabel }}:</strong> {{ $message }}</p>
+                                        <p><strong>{{ $messageLabel }}:</strong> {{ \App\Services\Automation\ReadableReleaseError::displayText($message) }}</p>
                                     @endforeach
                                 </div></td>
                             </tr>
@@ -240,7 +249,7 @@
                     <p class="mt-2 text-sm text-slate-600">Pesan ini akan diisi pada dialog Reject Release setelah sistem membuka panah di samping tombol Verify Release di Soundfresh.</p>
                     <label class="mt-4 block text-sm font-semibold text-slate-700" for="reject-reason">Alasan penolakan</label>
                     <textarea id="reject-reason" wire:model="rejectReason" rows="6" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" placeholder="Tulis alasan penolakan untuk dikirim ke Soundfresh"></textarea>
-                    @error('rejectReason') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('rejectReason') <p class="mt-1 text-xs text-red-600">{{ \App\Services\Automation\ReadableReleaseError::displayText($message) }}</p> @enderror
                     <div class="mt-5 flex justify-end gap-3">
                         <button type="button" wire:click="cancelRejectInSoundfresh" class="secondary-button">Batal</button>
                         <button type="button" wire:click="rejectInSoundfresh" wire:loading.attr="disabled" wire:target="rejectInSoundfresh" class="secondary-button release-status-action--failed">

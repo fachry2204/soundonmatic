@@ -180,8 +180,17 @@
                                 default => str_replace('_', ' ', $jobStatus),
                             };
                         @endphp
+                        @php
+                            if ($job->soundfresh_verify_status === 'rejecting' || $job->soundfresh_verify_status === 'rejected'
+                                || str_starts_with((string) $job->progress_label, 'Reject')) {
+                                $jobProgress = (int) $job->progress_percent;
+                                $progressLabel = $job->progress_label ?: 'Memproses Reject di Soundfresh';
+                                $progressTone = $job->soundfresh_verify_status === 'rejected' ? 'release-progress--success'
+                                    : ($job->soundfresh_verify_status === 'rejecting' ? '' : 'release-progress--danger');
+                            }
+                        @endphp
                         <tr wire:key="release-monitor-{{ $job->id }}" data-live-job="{{ $job->id }}" data-live-status="{{ $jobStatus }}">
-                            <td data-label="Rilisan"><div class="min-w-52"><a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer">{{ $displayTitle }} ↗</a><div class="mt-1 flex flex-wrap items-center gap-1.5"><span class="release-type-copy">{{ $releaseTypeLabel }} ·</span><span class="text-[11px] text-slate-400">ID {{ $job->soundfresh_release_id }}@if($job->artist_name) · {{ $job->artist_name }}@endif</span></div></div></td>
+                            <td data-label="Rilisan"><div class="min-w-52"><a href="{{ $job->soundfresh_release_url }}" target="_blank" rel="noopener noreferrer">{{ $displayTitle }}</a><div class="mt-1 flex flex-wrap items-center gap-1.5"><span class="release-type-copy">{{ $releaseTypeLabel }} ·</span><span class="text-[11px] text-slate-400">ID {{ $job->soundfresh_release_id }}@if($job->artist_name) · {{ $job->artist_name }}@endif</span></div></div></td>
                             <td data-label="Soundfresh">
                                 @php
                                 $soundfreshLabel = match ($job->soundfresh_workflow_status) {
@@ -200,7 +209,7 @@
                                             ? 'Sudah ada di draft Aggregator'
                                             : 'Draft tersimpan');
                                     @endphp
-                                    @if ($job->soundon_draft_url)<a href="{{ $job->soundon_draft_url }}" target="_blank" rel="noopener noreferrer" class="badge badge--success">{{ $draftLabel }} ↗</a>@else<span class="badge badge--success">{{ $draftLabel }}</span>@endif
+                                    @if ($job->soundon_draft_url)<a href="{{ $job->soundon_draft_url }}" target="_blank" rel="noopener noreferrer" class="badge badge--success">{{ $draftLabel }}</a>@else<span class="badge badge--success">{{ $draftLabel }}</span>@endif
                                     <p class="mt-1 text-[11px] text-slate-400">Draft ID {{ $job->soundon_draft_id }}</p>
                                 @elseif(filled($job->soundon_release_status))
                                     <span class="badge badge--success">Sudah ada di Aggregator</span>
@@ -211,7 +220,7 @@
                             </td>
                             <td data-label="Progres">
                                 <div class="release-progress {{ $progressTone }}">
-                                    <div class="release-progress__copy"><span>{{ $progressLabel }}</span><strong>{{ $jobProgress }}%</strong></div>
+                                    <div class="release-progress__copy"><span>{{ \App\Services\Automation\ReadableReleaseError::displayText($progressLabel) }}</span><strong>{{ $jobProgress }}%</strong></div>
                                     <div class="release-progress__track" role="progressbar" aria-label="Progress {{ $displayTitle }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $jobProgress }}">
                                         <div class="release-progress__bar" style="width: {{ $jobProgress }}%"></div>
                                     </div>
@@ -242,16 +251,16 @@
 
                                 <span title="{{ $jobStatus === 'queued' ? 'Rilisan sudah tersimpan di antrean dan akan diproses setelah rilisan aktif selesai.' : ($jobStatus === 'running' ? 'Rilisan ini sedang dikerjakan oleh automation worker.' : '') }}" class="badge {{ $jobStatus === 'completed' ? 'badge--success' : (in_array($jobStatus, ['failed','needs_attention','manual_auth_required','stopped']) ? 'badge--danger' : 'badge--warning') }}">{{ $statusLabel }}</span>
                                 @if(in_array($jobStatus, ['failed','needs_attention','manual_auth_required'], true) && $job->error_message)
-                                    <details wire:ignore.self wire:key="error-panel-{{ $job->id }}" class="release-error-box mt-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-700" title="{{ $job->error_message }}">
+                                    <details wire:ignore.self wire:key="error-panel-{{ $job->id }}" class="release-error-box mt-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-700" title="{{ \App\Services\Automation\ReadableReleaseError::displayText($job->error_message) }}">
                                         @php
                                             $readableError = \App\Services\Automation\ReadableReleaseError::explain($job->error_code, $job->error_message);
                                         @endphp
                                         <summary class="cursor-pointer font-semibold">Lihat detail error</summary><strong class="mt-2 block">{{ $readableError['title'] }}</strong>
-                                        <p class="mt-1">{{ $readableError['reason'] }}</p>
+                                        <p class="mt-1"><strong>Yang terjadi:</strong> {{ $readableError['reason'] }}</p>
                                         @if($readableError['action'])
-                                            <p class="mt-2">{{ $readableError['action'] }}</p>
+                                            <p class="mt-2"><strong>Yang perlu dilakukan:</strong> {{ $readableError['action'] }}</p>
                                         @endif
-                                        <details wire:key="release-error-details-{{ $job->id }}" wire:ignore.self class="mt-2"><summary class="cursor-pointer">Detail teknis</summary><p class="mt-1 break-words">{{ $job->error_code }} — {{ $job->error_message }}</p></details>
+                                        <details wire:key="release-error-details-{{ $job->id }}" wire:ignore.self class="mt-2"><summary class="cursor-pointer">Log asli untuk bantuan teknis</summary><p class="mt-1 break-words">{{ $job->error_code }} — {{ \App\Services\Automation\ReadableReleaseError::displayText($job->error_message) }}</p></details>
                                     </details>
                                 @endif
                                 @if($job->soundfresh_verify_status === 'rejecting')
@@ -259,7 +268,7 @@
                                 @elseif($job->soundfresh_verify_status === 'rejected')
                                     <p class="mt-2 text-sm text-emerald-700" role="status">Sudah ditolak di Soundfresh</p>
                                 @elseif($job->soundfresh_verify_status === 'failed' && $job->soundfresh_verify_error)
-                                    <p class="mt-2 text-sm text-red-700">{{ $job->soundfresh_verify_error }}</p>
+                                    <p class="mt-2 text-sm text-red-700">{{ \App\Services\Automation\ReadableReleaseError::displayText($job->soundfresh_verify_error) }}</p>
                                 @endif
                                 @if(\App\Services\Automation\FailedUploadRejection::eligible($job))
                                     @can('automation.retry')
@@ -294,7 +303,7 @@
                                         <p class="mt-1 text-[10px] text-amber-700">Melewati pemeriksaan judul dan artis yang sama.</p>
                                     @endcan
                                 @endif
-                                <a class="release-run-link" href="{{ route('automation.runs.show', $job->automation_run_id) }}">Detail run ↗</a>
+                                <a class="release-run-link" href="{{ route('automation.runs.show', $job->automation_run_id) }}">Detail run</a>
 
                                     </div>
                                 </details>
@@ -309,6 +318,9 @@
                             if (in_array($jobStatus, ['failed','needs_attention','manual_auth_required'], true) && filled($job->error_message)) {
                                 $rowError = \App\Services\Automation\ReadableReleaseError::explain($job->error_code, $job->error_message);
                                 $rowMessages['Alasan error'] = $rowError['reason'];
+                                if (filled($rowError['action'])) {
+                                    $rowMessages['Yang perlu dilakukan'] = $rowError['action'];
+                                }
                             }
                             if (filled($job->soundon_rejection_reason)) {
                                 $rowMessages['Alasan ditolak'] = $job->soundon_rejection_reason;
@@ -320,7 +332,7 @@
                         @if(count($rowMessages))
                             <tr class="monitor-error-row" wire:key="release-short-error-{{ $job->id }}"><td colspan="5"><div class="release-message-box"><section>
                                 @foreach($rowMessages as $messageLabel => $message)
-                                    <p><strong>{{ $messageLabel }}:</strong> {{ $message }}</p>
+                                    <p><strong>{{ $messageLabel }}:</strong> {{ \App\Services\Automation\ReadableReleaseError::displayText($message) }}</p>
                                 @endforeach
                             </section><button type="button" x-on:click="$dispatch('open-release-detail', {id: '{{ $job->id }}'})">Lihat detail</button></div></td></tr>
                         @endif
@@ -578,7 +590,7 @@
                     <p id="reject-upload-description" class="mt-2 text-sm leading-6 text-slate-600">Alasan diambil dari kegagalan upload. Periksa atau ubah sebelum mengirim. Aksi ini mengubah status di Soundfresh, tidak menghapus draft Aggregator.</p>
                     <label for="upload-reject-reason" class="mt-4 block text-sm font-semibold">Alasan penolakan</label>
                     <textarea id="upload-reject-reason" wire:model="uploadRejectReason" rows="5" maxlength="3000" required autofocus class="mt-2 w-full rounded-lg border border-slate-300 p-3 text-base focus:outline-2 focus:outline-red-700" aria-describedby="upload-reject-error"></textarea>
-                    <div id="upload-reject-error" class="mt-1 text-sm text-red-700" role="alert">@error('uploadRejectReason') {{ $message }} @enderror</div>
+                    <div id="upload-reject-error" class="mt-1 text-sm text-red-700" role="alert">@error('uploadRejectReason') {{ \App\Services\Automation\ReadableReleaseError::displayText($message) }} @enderror</div>
                     <div class="mt-5 flex flex-wrap justify-end gap-3">
                         <button type="button" x-on:click="$el.closest('dialog').close()" wire:click="cancelRejectFailedUpload" wire:loading.attr="disabled" class="secondary-button min-h-11">Batal</button>
                         <button type="submit" wire:loading.attr="disabled" wire:target="rejectFailedUpload" class="secondary-button failed-upload-reject-confirm">

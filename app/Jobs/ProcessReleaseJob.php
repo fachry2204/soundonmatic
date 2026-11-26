@@ -235,7 +235,7 @@ final class ProcessReleaseJob implements ShouldQueue
                             $this->event(
                                 $job,
                                 'soundon_optional_metadata_skipped',
-                                'Draft tetap tersimpan dengan peringatan field atau opsi SoundOn: '.implode('; ', array_map('strval', $draft['warnings'])).'. Periksa detail rilisan jika nilai tersebut diperlukan.',
+                                'Draft tetap tersimpan dengan peringatan field atau opsi Aggregator: '.implode('; ', array_map('strval', $draft['warnings'])).'. Periksa detail rilisan jika nilai tersebut diperlukan.',
                             );
                         }
                         if ($alreadyExists) {

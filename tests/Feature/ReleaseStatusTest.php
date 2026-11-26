@@ -499,7 +499,7 @@ final class ReleaseStatusTest extends TestCase
         ]);
         Livewire::test(ReleaseStatus::class)
             ->call('openRejectInSoundfresh', $job->id)
-            ->assertSet('rejectReason', 'Audio tidak memenuhi ketentuan')
+            ->assertSet('rejectReason', fn ($reason) => str_contains($reason, 'File audio belum memenuhi ketentuan') && str_contains($reason, 'Langkah yang perlu dilakukan:') && stripos($reason, 'soundon') === false)
             ->set('rejectReason', 'Pesan penolakan yang telah dikonfirmasi operator')
             ->call('rejectInSoundfresh')
             ->assertSet('syncMessage', 'Reject untuk Rilisan Harus Ditolak telah diantrikan. Worker akan mengirim alasan ke Soundfresh.');
@@ -507,7 +507,12 @@ final class ReleaseStatusTest extends TestCase
         $job->refresh();
         $this->assertSame('uploading', $job->soundfresh_workflow_status);
         $this->assertSame('rejecting', $job->soundfresh_verify_status);
-        Queue::assertPushed(RejectSoundfreshRelease::class, fn ($queued) => $queued->releaseJobId === $job->id && $queued->reason === 'Pesan penolakan yang telah dikonfirmasi operator');
+        $this->assertSame(5, $job->progress_percent);
+        Queue::assertPushed(RejectSoundfreshRelease::class, fn ($queued) => $queued->releaseJobId === $job->id && $queued->reason === 'Pesan penolakan yang telah dikonfirmasi operator' && $queued->queue === 'soundfresh-rejects');
+        Livewire::test(ReleaseStatus::class)->assertSee('Memproses Reject di Soundfresh')
+            ->call('openRejectInSoundfresh', $job->id)->call('rejectInSoundfresh')
+            ->assertSet('syncMessage', 'Reject sudah diproses atau sedang dikirim ke Soundfresh.');
+        Queue::assertPushed(RejectSoundfreshRelease::class, 1);
     }
 
     public function test_soundon_status_variants_are_normalized(): void
@@ -832,7 +837,34 @@ final class ReleaseStatusTest extends TestCase
             ->assertSee('Hasil Scan Baru')->assertDontSee('Tabel Lama');
     }
 
-    public function test_today_and_overdue_review_cards_only_count_and_filter_under_review_releases(): void
+    public function test_not_detected_card_counts_only_missing_releases_and_filters_the_table(): void
+    {
+        $this->seed(AccessControlSeeder::class);
+        $viewer = User::factory()->create();
+        $viewer->assignRole('Viewer');
+        $this->actingAs($viewer);
+        $run = AutomationRun::create(['status' => 'completed']);
+        foreach (['not_found' => 'Lagu Hilang', 'failed' => 'Pemeriksaan Gagal',
+            'queued' => 'Belum Diperiksa', 'detected' => 'Lagu Ditemukan'] as $checkStatus => $title) {
+            ReleaseJob::create([
+                'automation_run_id' => $run->id, 'soundfresh_release_id' => 'missing-card-'.$checkStatus,
+                'soundfresh_release_url' => 'https://cms.soundfresh.id/releases/'.$checkStatus,
+                'idempotency_key' => 'missing-card-'.$checkStatus, 'release_title' => $title,
+                'status' => 'completed', 'soundfresh_workflow_status' => 'uploading',
+                'soundon_check_status' => $checkStatus,
+            ]);
+        }
+        Livewire::test(ReleaseStatus::class)->assertSee('Tidak Terdeteksi')
+            ->assertViewHas('notFoundJobs', 1)
+            ->set('status', 'failed')->set('releaseDateFilter', 'overdue')
+            ->call('filterBySoundOnStatus', 'not_found')
+            ->assertSet('status', 'all')->assertSet('releaseDateFilter', 'all')
+            ->assertSee('Lagu Hilang')->assertDontSee('Pemeriksaan Gagal')
+            ->assertDontSee('Belum Diperiksa')->assertDontSee('Lagu Ditemukan')
+            ->call('filterBySoundOnStatus', 'all')->assertSee('Lagu Ditemukan');
+    }
+
+    public function test_combined_overdue_card_counts_today_and_past_under_review_releases(): void
     {
         $this->seed(AccessControlSeeder::class);
         $viewer = User::factory()->create();
@@ -846,6 +878,7 @@ final class ReleaseStatusTest extends TestCase
             ['Hari Ini Review', 'under_review', $today],
             ['Terlewat Review', 'under_review', $overdue],
             ['Terlewat Delivered', 'delivery', $overdue],
+            ['Besok Review', 'under_review', now(config('automation.release_timezone', 'Asia/Bangkok'))->addDay()->toDateString()],
         ] as $index => [$title, $soundOnStatus, $releaseDate]) {
             ReleaseJob::query()->create([
                 'automation_run_id' => $run->id,
@@ -863,8 +896,9 @@ final class ReleaseStatusTest extends TestCase
         }
 
         Livewire::test(ReleaseStatus::class)
-            ->assertSee('Rilis Hari Ini · Under Review')
-            ->assertSee('Rilis Terlewat · Under Review')
+            ->assertDontSee('Rilis Hari Ini · Under Review')
+            ->assertSee('Rilis Terlewat')
+            ->assertViewHas('overdueReviewJobs', 2)
             ->call('filterByReleaseDate', 'today')
             ->assertSet('releaseDateFilter', 'today')
             ->assertSet('soundOnStatus', 'under_review')
@@ -874,7 +908,8 @@ final class ReleaseStatusTest extends TestCase
             ->call('filterByReleaseDate', 'overdue')
             ->assertSet('releaseDateFilter', 'overdue')
             ->assertSee('Terlewat Review')
-            ->assertDontSee('Hari Ini Review')
+            ->assertSee('Hari Ini Review')
+            ->assertDontSee('Besok Review')
             ->assertDontSee('Terlewat Delivered');
     }
 

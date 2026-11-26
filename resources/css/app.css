@@ -787,3 +787,10 @@ input[type=checkbox] { accent-color:#df5b12; }
     .release-monitor-table tbody > tr, .release-status-table tbody > tr { border-color:#f1d9c9; }
     .release-monitor-table td:last-child, .release-status-table td:last-child { border-top-color:#f3e4d9; }
 }
+/* Seven status cards: the overdue card includes releases due today. */
+.status-metric-strip .metric-card:nth-child(3) { --card-bg:linear-gradient(115deg,#fff8e9,#ffefcc); --card-accent:#a65c09; }
+.status-metric-strip .metric-card:nth-child(4) { --card-bg:linear-gradient(115deg,#f0f9ff,#e1f1ff); --card-accent:#176899; }
+.status-metric-strip .metric-card:nth-child(5) { --card-bg:linear-gradient(115deg,#eef6ff,#e2edff); --card-accent:#235e95; }
+.status-metric-strip .metric-card:nth-child(6) { --card-bg:linear-gradient(115deg,#efffea,#e1f8df); --card-accent:#14723b; }
+.status-metric-strip .metric-card:nth-child(7) { --card-bg:linear-gradient(115deg,#fff0f2,#ffdde5); --card-accent:#b71f3b; }
+.status-metric-strip .metric-card.metric-card--not-found { --card-bg:linear-gradient(115deg,#f4f1ed,#e9e4de); --card-accent:#61554b; }

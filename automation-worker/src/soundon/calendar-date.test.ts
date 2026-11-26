@@ -1,8 +1,46 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { chromium } from 'playwright';
 import { continueWithCurrentReleaseDate, selectCalendarDate, setScopedTime, setTikTokPreRelease } from './draft-driver.js';
 
 describe('SoundOn calendar selection', () => {
+    it('automatically handles a Semi warning without a dialog role before opening the date field', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div class="semi-input-wrapper" onclick="document.querySelector('.semi-datepicker').hidden=false"><input readonly></div>
+                <div class="semi-datepicker" hidden><div class="semi-datepicker-navigation-month">Dec 2026</div>
+                <div class="semi-datepicker-day" title="2026-12-08" onclick="document.querySelector('input').value='2026-12-08';this.parentElement.hidden=true">8</div></div>
+                <div class="semi-modal-wrap" role="none" style="position:fixed;inset:0;background:white"><div class="semi-modal-content">
+                <h2>Release Date Too Soon</h2><button onclick="this.closest('.semi-modal-wrap').remove()">No, continue with this date</button></div></div>`);
+            expect(await selectCalendarDate(page.locator('input'), '2026-12-08')).toBe(true);
+            expect(await page.locator('input').inputValue()).toBe('2026-12-08');
+            expect(await page.locator('.semi-modal-wrap').count()).toBe(0);
+        } finally { await browser.close(); }
+    }, 15000);
+
+    it('recovers when a date warning appears after the calendar pre-flight check', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div class="semi-input-wrapper" onclick="document.querySelector('.semi-datepicker').hidden=false"><input readonly></div>
+                <div class="semi-datepicker" hidden><div class="semi-datepicker-navigation-month">Dec 2026</div>
+                <div class="semi-datepicker-day" title="2026-12-08" onclick="document.querySelector('input').value='2026-12-08';this.parentElement.hidden=true">8</div></div>
+                <div role="dialog" hidden style="position:fixed;inset:0;background:white"><h2>Release Date Too Far Away</h2>
+                <button onclick="this.parentElement.remove()">No, continue with this date</button></div>`);
+            // The modal arrives between the initial visibility check and the
+            // real click, just as an asynchronous Aggregator warning can.
+            const input = page.locator('input');
+            const wrapper = page.locator('.semi-input-wrapper');
+            vi.spyOn(input, 'locator').mockReturnValue(wrapper);
+            const realClick = wrapper.click.bind(wrapper);
+            vi.spyOn(wrapper, 'click').mockImplementationOnce(async options => {
+                await page.locator('[role=dialog]').evaluate(el => { (el as HTMLElement).hidden = false; });
+                await realClick(options);
+            });
+            expect(await selectCalendarDate(input, '2026-12-08')).toBe(true);
+            expect(await input.inputValue()).toBe('2026-12-08');
+        } finally { await browser.close(); }
+    }, 15000);
     it('dismisses a release-date warning before opening the calendar', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

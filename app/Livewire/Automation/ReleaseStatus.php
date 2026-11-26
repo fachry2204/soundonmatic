@@ -377,7 +377,7 @@ final class ReleaseStatus extends Component
             return;
         }
         $this->rejectingJobId = $job->id;
-        $this->rejectReason = trim((string) $job->soundon_rejection_reason);
+        $this->rejectReason = \App\Services\Automation\FailedUploadRejection::platformReason($job);
         $this->resetValidation('rejectReason');
     }
 
@@ -403,7 +403,20 @@ final class ReleaseStatus extends Component
             $this->syncMessage = 'Rilisan harus berada di tab Uploading Soundfresh sebelum ditolak.';
             return;
         }
-        $job->update(['soundfresh_verify_status' => 'rejecting', 'soundfresh_verify_error' => null]);
+        try {
+            app(\App\Services\Automation\LocalSystemManager::class)->startRejectionWorker();
+        } catch (Throwable $error) {
+            $this->syncMessage = 'Reject belum dikirim: '.$error->getMessage();
+            return;
+        }
+        $claimed = ReleaseJob::query()->whereKey($job->id)->where(function ($query) {
+            $query->whereNull('soundfresh_verify_status')->orWhereNotIn('soundfresh_verify_status', ['rejecting', 'rejected']);
+        })->update(['soundfresh_verify_status' => 'rejecting', 'soundfresh_verify_error' => null,
+            'progress_percent' => 5, 'progress_label' => 'Memproses Reject di Soundfresh', 'progress_updated_at' => now()]);
+        if (! $claimed) {
+            $this->syncMessage = 'Reject sudah diproses atau sedang dikirim ke Soundfresh.';
+            return;
+        }
         RejectSoundfreshRelease::dispatch($job->id, $reason);
         $this->syncMessage = 'Reject untuk '.$job->release_title.' telah diantrikan. Worker akan mengirim alasan ke Soundfresh.';
         $this->cancelRejectInSoundfresh();
@@ -419,11 +432,12 @@ final class ReleaseStatus extends Component
 
     public function filterBySoundOnStatus(string $status): void
     {
-        if (! in_array($status, ['all', 'new', 'under_review', 'delivery', 'approved', 'not_approved', 'live'], true)) {
+        if (! in_array($status, ['all', 'new', 'under_review', 'delivery', 'approved', 'not_approved', 'live', 'not_found'], true)) {
             return;
         }
 
         $this->soundOnStatus = $status;
+        $this->status = 'all';
         $this->releaseDateFilter = 'all';
     }
 
@@ -517,7 +531,7 @@ final class ReleaseStatus extends Component
             ->pluck('id')
             ->all();
         $overdueReviewIds = $reviewDateJobs
-            ->filter(fn (ReleaseJob $job): bool => ($date = $this->releaseDateFor($job)) !== null && $date->lessThan($today))
+            ->filter(fn (ReleaseJob $job): bool => ($date = $this->releaseDateFor($job)) !== null && $date->lessThanOrEqualTo($today))
             ->pluck('id')
             ->all();
 
@@ -538,6 +552,8 @@ final class ReleaseStatus extends Component
 
         if (in_array($this->soundOnStatus, ['under_review', 'delivery', 'approved', 'not_approved', 'live'], true)) {
             $query->where('soundon_release_status', $this->soundOnStatus);
+        } elseif ($this->soundOnStatus === 'not_found') {
+            $query->where('soundon_check_status', 'not_found');
         } elseif ($this->soundOnStatus === 'pending') {
             $query->whereNull('soundon_release_status');
         } elseif ($this->soundOnStatus === 'new' && $latestStatusRunId) {
@@ -570,6 +586,9 @@ final class ReleaseStatus extends Component
         $verificationJobs = $this->verificationJobIds === []
             ? $this->statusResultsQuery()->whereNotNull('soundfresh_verify_status')->get()
             : $this->statusResultsQuery()->whereIn('id', $this->verificationJobIds)->get();
+        $verificationJobs = $verificationJobs->reject(fn ($job) =>
+            in_array($job->soundfresh_verify_status, ['rejecting', 'rejected'], true)
+            || str_starts_with((string) $job->progress_label, 'Reject'));
         $verificationTotal = $verificationJobs->count();
         $verificationSending = $verificationJobs->where('soundfresh_verify_status', 'sending')->count();
         $verificationSucceeded = $verificationJobs->where('soundfresh_verify_status', 'success')->count();
@@ -593,6 +612,7 @@ final class ReleaseStatus extends Component
             'approvedJobs' => (clone $metricQuery)->where('soundon_release_status', 'approved')->count(),
             'notApprovedJobs' => (clone $metricQuery)->where('soundon_release_status', 'not_approved')->count(),
             'liveJobs' => (clone $metricQuery)->where('soundon_release_status', 'live')->count(),
+            'notFoundJobs' => (clone $metricQuery)->where('soundon_check_status', 'not_found')->count(),
             'verificationTotal' => $verificationTotal,
             'verificationSending' => $verificationSending,
             'verificationSucceeded' => $verificationSucceeded,

@@ -3,6 +3,18 @@ import { chromium } from 'playwright';
 import { clickEntityControl, setSearchField } from './draft-driver.js';
 
 describe('entity control pointer interaction', () => {
+    it('identifies an unknown blocking editor without discarding its unsaved data', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<button id="date" onclick="window.wrong=true">Release date</button>
+                <div role="dialog" style="position:fixed;inset:0;background:white"><h2>Primary artists</h2>
+                <input value="Unsaved artist"><button onclick="this.parentElement.remove()">Cancel</button></div>`);
+            await expect(clickEntityControl(page.locator('#date'))).rejects.toThrow('blocking_dialog_title="Primary artists"');
+            expect(await page.locator('[role=dialog] input').inputValue()).toBe('Unsaved artist');
+            expect(await page.evaluate(() => (window as any).wrong)).toBeUndefined();
+        } finally { await browser.close(); }
+    }, 20000);
     it('selects the full artist name only inside the active editor, even when its text is truncated', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {
