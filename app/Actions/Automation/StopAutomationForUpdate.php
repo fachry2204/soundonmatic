@@ -20,8 +20,13 @@ class StopAutomationForUpdate
             ->update(['status' => 'stopped', 'stop_requested_at' => now(), 'finished_at' => now()]);
 
         $status = $system->stopAllWorkers();
-        if (! app()->runningUnitTests() && ($status['worker'] || $status['release_workers'] > 0 || $status['status_workers'] > 0 || ($status['reject_workers'] ?? 0) > 0)) {
-            throw new RuntimeException('Worker belum berhenti sepenuhnya.');
+        if (! LocalSystemManager::workersStopped($status)) {
+            $active = [];
+            if ($status['worker'] ?? false) $active[] = 'browser otomatis';
+            foreach (['release_workers' => 'upload', 'status_workers' => 'cek status', 'reject_workers' => 'Reject'] as $key => $label) {
+                if (($status[$key] ?? 0) > 0) $active[] = $label.' ('.$status[$key].')';
+            }
+            throw new RuntimeException('Worker masih aktif: '.implode(', ', $active).'.');
         }
 
         DB::transaction(function (): void {

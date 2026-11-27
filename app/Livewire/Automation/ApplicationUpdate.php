@@ -293,6 +293,10 @@ final class ApplicationUpdate extends Component
         } catch (Throwable $error) {
             report($error);
             $this->message = 'Update belum dapat dilanjutkan karena worker gagal dihentikan. Klik Update Sistem untuk mencoba kembali.';
+            if ($error instanceof \RuntimeException && str_starts_with($error->getMessage(), 'Worker masih aktif:')) {
+                $this->message = 'Update belum dapat dilanjutkan. '.$error->getMessage()
+                    .' Tutup Soundfresh sepenuhnya, buka kembali, lalu coba Update Sistem. Database dan sesi login tidak dihapus.';
+            }
 
             return false;
         }

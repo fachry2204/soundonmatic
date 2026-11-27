@@ -97,18 +97,18 @@ final class LocalSystemManager
         }
 
         $stopped = false;
-        $pidFile = storage_path('app/automation-worker.pid');
-        if (is_file($pidFile)) {
+        foreach (['automation-worker.pid', 'automation-worker-desktop.pid'] as $name) {
+            $pidFile = storage_path('app/'.$name);
+            if (! is_file($pidFile)) continue;
             $pid = (int) trim((string) file_get_contents($pidFile));
             if ($pid > 0 && PHP_OS_FAMILY === 'Windows') {
                 $commandLine = $this->windowsProcessCommandLine($pid);
-                if (str_contains($commandLine, '--node-runner') || str_contains($commandLine, 'dist/server.js')) {
-                    $kill = new Process(['taskkill.exe', '/PID', (string) $pid, '/T', '/F']);
-                    $kill->setTimeout(5)->run();
+                if (self::ownsBrowserWorkerCommand($commandLine, base_path())) {
+                    $this->terminateWorkerProcess($pid);
                     $stopped = true;
+                    @unlink($pidFile);
                 }
             }
-            @unlink($pidFile);
         }
 
         // A worker can outlive its PID file after a desktop restart. Stop any
@@ -116,8 +116,7 @@ final class LocalSystemManager
         // or touching unrelated Node services on the computer.
         if (PHP_OS_FAMILY === 'Windows') {
             foreach ($this->windowsBrowserWorkerProcessIds() as $processId) {
-                $kill = new Process(['taskkill.exe', '/PID', (string) $processId, '/T', '/F']);
-                $kill->setTimeout(5)->run();
+                $this->terminateWorkerProcess($processId);
                 $stopped = true;
             }
         }
@@ -175,25 +174,23 @@ final class LocalSystemManager
             }
             foreach ($pidFiles as $pidFile) if (is_file($pidFile)) {
                 $pid = (int) trim((string) file_get_contents($pidFile));
-                if ($pid > 0) {
+                $command = $pid > 0 ? $this->windowsProcessCommandLine($pid) : '';
+                if ($pid > 0 && self::ownsQueueWorkerCommand($command, base_path(), (string) $queue)) {
                     // The recorded PID supervises a child Artisan process.
                     // Stop its tree so the old child cannot retain the queue.
-                    $kill = new Process(['taskkill.exe', '/PID', (string) $pid, '/T', '/F']);
-                    $kill->setTimeout(5)->run();
+                    $this->terminateWorkerProcess($pid);
+                    @unlink($pidFile);
+                } elseif (trim($command) !== '') {
+                    // PID reuse does not give us ownership of another app.
+                    @unlink($pidFile);
                 }
-                @unlink($pidFile);
             }
             // A detached Artisan child can become orphaned from its recorded
             // supervisor PID. Terminate every exact queue process discovered
             // through WMIC so Stop followed by Ambil starts a clean consumer.
             foreach ($this->windowsQueueProcessIds((string) $queue) as $processId) {
-                $kill = new Process(['taskkill.exe', '/PID', (string) $processId, '/T', '/F']);
-                $kill->setTimeout(5)->run();
+                $this->terminateWorkerProcess($processId);
             }
-            $queue = str_replace("'", "''", (string) $queue);
-            $script = "Get-CimInstance Win32_Process -Filter \"Name='php.exe'\" | Where-Object { \$_.CommandLine -match 'artisan\\s+queue:work' -and \$_.CommandLine -like '*{$queue}*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }";
-            $process = new Process(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', $script]);
-            $process->setTimeout(10)->run();
         }
     }
 
@@ -202,8 +199,33 @@ final class LocalSystemManager
     {
         $this->stopQueueWorkers();
         $browser = $this->stop();
+        $deadline = microtime(true) + 5;
+        do {
+            $status = $this->status();
+            if (self::workersStopped($status)) break;
+            usleep(200_000);
+        } while (microtime(true) < $deadline);
 
-        return [...$this->status(), 'message' => 'Browser worker dan seluruh queue worker berhasil dihentikan. '.$browser['message']];
+        return [...$status, 'message' => self::workersStopped($status)
+            ? 'Browser worker dan seluruh queue worker berhasil dihentikan.'
+            : 'Sebagian worker masih berhenti. '.$browser['message']];
+    }
+
+    public static function workersStopped(array $status): bool
+    {
+        return ! ($status['worker'] ?? false) && ($status['release_workers'] ?? 0) === 0
+            && ($status['status_workers'] ?? 0) === 0 && ($status['reject_workers'] ?? 0) === 0;
+    }
+
+    private function terminateWorkerProcess(int $pid): void
+    {
+        try {
+            (new Process(['taskkill.exe', '/PID', (string) $pid, '/T', '/F']))->setTimeout(10)->run();
+        } catch (\Throwable $error) {
+            // Continue stopping the other owned workers. Final live checks,
+            // not a failed/timed-out helper, decide whether updating is safe.
+            report($error);
+        }
     }
 
     private function workerIsOnline(): bool
@@ -279,32 +301,49 @@ final class LocalSystemManager
         $output = (string) shell_exec(
             'wmic.exe process where "name=\'node.exe\'" get CommandLine,ProcessId /format:list 2>NUL'
         );
-        $entrypoint = strtolower(str_replace('\\', '/', base_path('automation-worker/dist/server.js')));
-        $processIds = [];
-        foreach (preg_split('/(?:\r?\n){2,}/', trim($output)) ?: [] as $record) {
-            if (! preg_match('/CommandLine=(.*)/i', $record, $commandMatch)
-                || ! preg_match('/ProcessId=(\d+)/i', $record, $pidMatch)) {
-                continue;
-            }
-            $commandLine = strtolower(str_replace('\\', '/', trim($commandMatch[1])));
-            if (str_contains($commandLine, $entrypoint)) {
-                $processIds[] = (int) $pidMatch[1];
-            }
-        }
-
-        return array_values(array_unique($processIds));
+        return self::ownedProcessIds($output, base_path());
     }
 
     /** @return list<int> */
     private function windowsQueueProcessIds(string $queue): array
     {
-        $safeQueue = str_replace(["'", '%'], ["''", ''], $queue);
         $output = (string) shell_exec(
-            'wmic.exe process where "name=\'php.exe\' and CommandLine like \'%--queue='.$safeQueue.'%\'" get ProcessId /value 2>NUL'
+            'wmic.exe process where "name=\'php.exe\'" get CommandLine,ProcessId /format:list 2>NUL'
         );
-        preg_match_all('/ProcessId=(\d+)/', $output, $matches);
 
-        return array_values(array_unique(array_map('intval', $matches[1] ?? [])));
+        return self::ownedProcessIds($output, base_path(), $queue);
+    }
+
+    public static function ownsBrowserWorkerCommand(string $command, string $root): bool
+    {
+        $command = strtolower(str_replace('\\', '/', $command));
+        $root = strtolower(rtrim(str_replace('\\', '/', $root), '/'));
+        return str_contains($command, $root.'/automation-worker/dist/server.js')
+            || (str_contains($command, $root.'/bootstrap/app.php') && str_contains($command, '--node-runner'))
+            || (str_contains($command, $root.'/runtime/node/node.exe')
+                && preg_match('~(?:^|[\s"\'])dist/server\.js(?:[\s"\']|$)~', $command) === 1);
+    }
+
+    public static function ownsQueueWorkerCommand(string $command, string $root, string $queue): bool
+    {
+        $command = strtolower(str_replace('\\', '/', $command));
+        $root = strtolower(rtrim(str_replace('\\', '/', $root), '/'));
+        if (! str_contains($command, $root.'/artisan')
+            && ! (str_contains($command, $root.'/bootstrap/app.php') && str_contains($command, '--queue-runner'))) return false;
+        if (! preg_match('~(?:^|[\s"\'])--queue=([^\s"\']+)~', $command, $match)) return false;
+        return str_contains($command, 'queue:work') && in_array(strtolower($queue), explode(',', $match[1]), true);
+    }
+
+    public static function ownedProcessIds(string $output, string $root, ?string $queue = null): array
+    {
+        $ids = [];
+        foreach (preg_split('/\n\s*\n/', trim(str_replace("\r", '', $output))) ?: [] as $record) {
+            if (! preg_match('/^CommandLine=(.*)$/mi', $record, $command)
+                || ! preg_match('/^ProcessId=(\d+)$/mi', $record, $pid)) continue;
+            if ($queue === null ? self::ownsBrowserWorkerCommand($command[1], $root)
+                : self::ownsQueueWorkerCommand($command[1], $root, $queue)) $ids[] = (int) $pid[1];
+        }
+        return array_values(array_unique($ids));
     }
 
     private function startQueueWorker(string $queue, string $outputLog, string $errorLog, int $slot = 0): void

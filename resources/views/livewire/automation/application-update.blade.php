@@ -6,7 +6,7 @@
                 <h2 id="system-update-title" class="mt-4 text-xl font-bold">Sistem versi terbaru tersedia</h2>
                 <p class="my-4 text-2xl font-bold">v{{ $currentVersion }} <span aria-label="ke">→</span> v{{ $latestVersion }}</p>
                 <p id="system-update-description" class="text-sm leading-6 text-slate-600">Klik Update Sistem. Pembaruan diunduh dan dipasang otomatis, lalu aplikasi dibuka kembali. Tidak perlu mengunduh atau menjalankan EXE secara manual. Data dan sesi login tetap dipertahankan.</p>
-                    <p class="mt-3 text-sm leading-6 text-slate-600">Selesaikan upload dan pemeriksaan rilisan sebelum memperbarui aplikasi.</p>
+                    <p class="mt-3 text-sm leading-6 text-slate-600">Seluruh worker dihentikan otomatis sebelum pembaruan dipasang. Database dan sesi login tetap dipertahankan.</p>
                 @if($message)
                     <p class="mt-4 rounded-lg bg-slate-100 p-3 text-sm leading-6" role="status">{{ $message }}</p>
                 @endif

@@ -187,6 +187,19 @@ final class AutomaticApplicationUpdateTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_update_names_remaining_workers_without_exposing_internal_commands(): void
+    {
+        $this->fakeRelease();
+        $this->mock(StopAutomationForUpdate::class)->shouldReceive('handle')->once()
+            ->andThrow(new \RuntimeException('Worker masih aktif: browser otomatis, Reject (1).'));
+        Livewire::test(ApplicationUpdate::class, ['popup' => true])->call('downloadAndInstall')
+            ->assertSee('Worker masih aktif: browser otomatis, Reject (1).')
+            ->assertSee('Database dan sesi login tidak dihapus.')
+            ->assertSee('Seluruh worker dihentikan otomatis')
+            ->assertSet('installStarted', false)->assertNotDispatched('soundmatic-update-ready');
+        Http::assertSentCount(1);
+    }
+
     public function test_checking_for_updates_does_not_stop_workers(): void
     {
         $this->fakeRelease();
