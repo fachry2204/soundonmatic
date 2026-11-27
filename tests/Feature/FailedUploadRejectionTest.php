@@ -43,6 +43,15 @@ class FailedUploadRejectionTest extends TestCase
         ], ...$attributes]);
     }
 
+    public function test_pending_release_shows_upload_validation_and_reject_delivery_error_separately(): void
+    {
+        $this->release(['soundfresh_verify_status' => 'failed',
+            'soundfresh_verify_error' => 'SOUNDFRESH_UI_CHANGED:reject_reason_input:url=https://cms.soundfresh.id/v2/admin/releases/4657']);
+        Livewire::test(Dashboard::class)->assertSee('ISRC tidak valid')
+            ->assertSee('Reject belum terkirim')->assertSee('kolom alasan')
+            ->assertSee('Log Reject untuk bantuan teknis')->assertSee('Reject di Soundfresh');
+    }
+
     public function test_client_rejection_is_detailed_and_has_no_provider_name_or_technical_log(): void
     {
         $job = $this->release(['error_code' => 'UI_INTERACTION_TIMEOUT',

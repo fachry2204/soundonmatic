@@ -1,8 +1,43 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chromium } from 'playwright';
-import { continueWithCurrentReleaseDate, selectCalendarDate, setScopedTime, setTikTokPreRelease } from './draft-driver.js';
+import { acknowledgeSelectionUpdated, continueWithCurrentReleaseDate, selectCalendarDate, setScopedTime, setTikTokPreRelease } from './draft-driver.js';
 
 describe('SoundOn calendar selection', () => {
+    it.each([false, true])('acknowledges Selection updated and preserves the date (late notice: %s)', async late => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent(`<div class="semi-input-wrapper" onclick="document.querySelector('.semi-datepicker').hidden=false"><input readonly></div>
+                <div class="semi-datepicker" hidden><div class="semi-datepicker-navigation-month">Dec 2026</div>
+                <div class="semi-datepicker-day" title="2026-12-08" onclick="document.querySelector('input').value='2026-12-08';this.parentElement.hidden=true">8</div></div>
+                <div id="notice" role="none" class="semi-modal-wrap" ${late ? 'hidden' : ''} style="position:fixed;inset:0;background:white">
+                <div class="semi-modal-content"><h2>Selection updated</h2><button onclick="window.acknowledged=true;this.closest('#notice').remove()">Got it</button></div></div>`);
+            const input = page.locator('input');
+            if (late) {
+                const wrapper = page.locator('.semi-input-wrapper');
+                vi.spyOn(input, 'locator').mockReturnValue(wrapper);
+                const realClick = wrapper.click.bind(wrapper);
+                vi.spyOn(wrapper, 'click').mockImplementationOnce(async options => {
+                    await page.locator('#notice').evaluate(el => { (el as HTMLElement).hidden = false; });
+                    await realClick(options);
+                });
+            }
+            expect(await selectCalendarDate(input, '2026-12-08')).toBe(true);
+            expect(await input.inputValue()).toBe('2026-12-08');
+            expect(await page.evaluate(() => (window as any).acknowledged)).toBe(true);
+        } finally { await browser.close(); }
+    }, 15000);
+
+    it('does not acknowledge a Got it button in an unrelated dialog', async () => {
+        const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+        try {
+            const page = await browser.newPage();
+            await page.setContent('<div role="dialog"><h2>Primary artists</h2><input value="Unsaved artist"><button onclick="window.wrong=true">Got it</button></div>');
+            await acknowledgeSelectionUpdated(page);
+            expect(await page.evaluate(() => (window as any).wrong)).toBeUndefined();
+            expect(await page.locator('input').inputValue()).toBe('Unsaved artist');
+        } finally { await browser.close(); }
+    });
     it('automatically handles a Semi warning without a dialog role before opening the date field', async () => {
         const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
         try {

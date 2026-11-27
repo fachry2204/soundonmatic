@@ -268,7 +268,10 @@
                                 @elseif($job->soundfresh_verify_status === 'rejected')
                                     <p class="mt-2 text-sm text-emerald-700" role="status">Sudah ditolak di Soundfresh</p>
                                 @elseif($job->soundfresh_verify_status === 'failed' && $job->soundfresh_verify_error)
-                                    <p class="mt-2 text-sm text-red-700">{{ \App\Services\Automation\ReadableReleaseError::displayText($job->soundfresh_verify_error) }}</p>
+                                    <div class="release-message-box mt-2"><section>
+                                        <p>{{ \App\Services\Automation\ReadableReleaseError::soundfreshMessage($job->soundfresh_verify_error) }}</p>
+                                        <details class="mt-2"><summary class="cursor-pointer">Log Reject untuk bantuan teknis</summary><p class="mt-1 break-words">{{ \App\Services\Automation\ReadableReleaseError::displayText($job->soundfresh_verify_error) }}</p></details>
+                                    </section></div>
                                 @endif
                                 @if(\App\Services\Automation\FailedUploadRejection::eligible($job))
                                     @can('automation.retry')
@@ -326,7 +329,7 @@
                                 $rowMessages['Alasan ditolak'] = $job->soundon_rejection_reason;
                             }
                             if (filled($job->soundfresh_verify_error)) {
-                                $rowMessages['Error Soundfresh'] = $job->soundfresh_verify_error;
+                                $rowMessages['Error Soundfresh'] = \App\Services\Automation\ReadableReleaseError::soundfreshMessage($job->soundfresh_verify_error);
                             }
                         @endphp
                         @if(count($rowMessages))

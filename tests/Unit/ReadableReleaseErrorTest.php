@@ -5,6 +5,15 @@ use PHPUnit\Framework\TestCase;
 
 class ReadableReleaseErrorTest extends TestCase
 {
+    public function test_reject_editor_error_is_distinct_from_upload_validation_and_does_not_expose_internal_url(): void
+    {
+        $message = ReadableReleaseError::soundfreshMessage('SOUNDFRESH_UI_CHANGED:reject_reason_input:url=https://cms.soundfresh.id/v2/admin/releases/4657');
+        $this->assertStringContainsString('Reject belum terkirim', $message);
+        $this->assertStringContainsString('kolom alasan', $message);
+        $this->assertStringContainsString('Retry menjalankan ulang proses upload', $message);
+        $this->assertStringNotContainsString('https://', $message);
+        $this->assertStringNotContainsString('SOUNDFRESH_UI_CHANGED', $message);
+    }
     public function test_blocking_dialog_is_named_when_the_worker_identifies_its_title(): void
     {
         $result = ReadableReleaseError::explain('UI_CHANGED',

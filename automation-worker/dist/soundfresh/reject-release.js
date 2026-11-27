@@ -1,3 +1,23 @@
+async function rejectReasonEditor(modal) {
+    // Reject may use an AJAX-loaded textarea, Quill contenteditable, or a
+    // TinyMCE/CKEditor iframe. Never fill a different form elsewhere on page.
+    const candidates = modal.locator('textarea,[contenteditable="true"],[contenteditable="plaintext-only"],input[name*="reason" i],input[id*="reason" i]')
+        .filter({ visible: true });
+    if (await candidates.count() === 1 && await candidates.first().isEditable())
+        return candidates.first();
+    const named = modal.getByRole('textbox', { name: /reason|alasan|description|deskripsi/i }).filter({ visible: true });
+    if (await named.count() === 1 && await named.first().isEditable())
+        return named.first();
+    const frames = modal.locator('iframe:visible');
+    for (let index = 0; index < await frames.count(); index++) {
+        const editor = modal.frameLocator('iframe:visible').nth(index)
+            .locator('body[contenteditable="true"],[contenteditable="true"],[role="textbox"]').filter({ visible: true });
+        if (await editor.count() === 1 && await editor.first().isEditable())
+            return editor.first();
+    }
+    const textbox = modal.getByRole('textbox').filter({ visible: true });
+    return await textbox.count() === 1 && await textbox.first().isEditable() ? textbox.first() : null;
+}
 export async function rejectSoundfreshRelease(page, reason) {
     // Current Soundfresh pages expose Reject Release as a primary action.
     // Use the button directly; only fall back to the legacy Verify dropdown
@@ -49,15 +69,24 @@ export async function rejectSoundfreshRelease(page, reason) {
         throw new Error(`SOUNDFRESH_UI_CHANGED:reject_release_button:buttons=${JSON.stringify(buttons)}:url=${page.url()}`);
     }
     await rejectButton.click({ timeout: 20_000 });
-    let modal = page.getByRole("dialog").filter({ visible: true }).first();
-    if (!await modal.count())
-        modal = page.locator('.modal.show:visible, [class*="modal" i]:visible').first();
+    const modal = page.locator('dialog[open],[role="dialog"],[role="alertdialog"],.modal.show,.swal2-popup')
+        .filter({ hasText: /reject|tolak|penolakan/i }).filter({ visible: true }).last();
     await modal.waitFor({ state: "visible", timeout: 10_000 });
-    let reasonInput = modal.getByRole("textbox").filter({ visible: true }).first();
-    if (!await reasonInput.count())
-        reasonInput = page.locator('textarea:visible, input[name*="reason" i]:visible').first();
-    if (!await reasonInput.count())
-        throw new Error(`SOUNDFRESH_UI_CHANGED:reject_reason_input:url=${page.url()}`);
+    const deadline = Date.now() + 10_000;
+    let reasonInput = null;
+    do {
+        reasonInput = await rejectReasonEditor(modal);
+        if (reasonInput)
+            break;
+        await page.waitForTimeout(150);
+    } while (Date.now() < deadline && await modal.isVisible().catch(() => false));
+    if (!reasonInput) {
+        const controls = await modal.locator('input,textarea,[contenteditable],iframe').evaluateAll(elements => elements.map(element => ({
+            tag: element.tagName.toLowerCase(), type: element.getAttribute('type'), name: element.getAttribute('name'),
+            role: element.getAttribute('role'), editable: element.getAttribute('contenteditable'),
+        }))).catch(() => []);
+        throw new Error(`SOUNDFRESH_UI_CHANGED:reject_reason_input:controls=${JSON.stringify(controls)}:url=${page.url()}`);
+    }
     await reasonInput.fill(reason);
     const submit = modal.getByRole("button", { name: /^(?:Reject|Reject Release|Submit)$/i }).filter({ visible: true }).last();
     if (!await submit.count())

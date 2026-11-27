@@ -435,13 +435,7 @@ async function createKnownSoundOnDraft(
     // the Soundfresh date by choosing the explicit "continue with this date"
     // action before saving the draft.
     await continueWithCurrentReleaseDate(page);
-    const acknowledgeSelectionUpdate = page
-        .getByText("Got it", { exact: true })
-        .filter({ visible: true });
-    if (await acknowledgeSelectionUpdate.count()) {
-        await acknowledgeSelectionUpdate.last().click({ force: true });
-        await page.waitForTimeout(500);
-    }
+    await acknowledgeSelectionUpdated(page);
 
     const save = page.getByRole("button", {
         name: "Save to my drafts",
@@ -694,7 +688,23 @@ export async function selectAlbumTrack(page: Page, filename: string): Promise<vo
     await target.scrollIntoViewIfNeeded();
 }
 
+export async function acknowledgeSelectionUpdated(page: Page): Promise<void> {
+    // This informational notice can appear as soon as distribution choices
+    // change, well before Save. Never click a generic Got it in another dialog.
+    const notice = page.locator('dialog[open],[role="dialog"],[role="alertdialog"],.semi-modal,.semi-modal-content')
+        .filter({ has: page.locator('.semi-modal-title,[role="heading"],h1,h2,h3').filter({ hasText: /^Selection updated$/i }) })
+        .filter({ visible: true }).last();
+    if (!await notice.count()) return;
+    const acknowledge = notice.getByRole('button', { name: /^Got it$/i }).filter({ visible: true }).last();
+    await acknowledge.waitFor({ state: 'visible', timeout: 3000 }).catch(() => undefined);
+    if (!await acknowledge.count()) throw new Error('SOUNDON_UI_CHANGED:selection_updated_acknowledgement');
+    await acknowledge.click({ timeout: 3000 });
+    const closed = await notice.waitFor({ state: 'hidden', timeout: 3000 }).then(() => true).catch(() => false);
+    if (!closed) throw new Error('SOUNDON_UI_CHANGED:selection_updated_not_closed');
+}
+
 export async function continueWithCurrentReleaseDate(page: Page, waitForAppearance = true): Promise<void> {
+    await acknowledgeSelectionUpdated(page);
     const warning = page
         .getByText(/^Release Date Too (?:Soon|Far Away)$/i, { exact: true })
         .filter({ visible: true });
@@ -2787,6 +2797,7 @@ export async function clickEntityControl(locator: Locator): Promise<void> {
     let blockingDialogTitle: string | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
+            await acknowledgeSelectionUpdated(locator.page());
             await locator.waitFor({ state: 'visible', timeout: 3000 });
             await locator.evaluate(element => {
                 const rect = element.getBoundingClientRect();

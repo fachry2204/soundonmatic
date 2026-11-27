@@ -222,7 +222,7 @@
                                 );
                             }
                             if (filled($job->soundfresh_verify_error)) {
-                                $rowMessages['Error Soundfresh'] = $job->soundfresh_verify_error;
+                                $rowMessages['Error Soundfresh'] = \App\Services\Automation\ReadableReleaseError::soundfreshMessage($job->soundfresh_verify_error);
                             }
                         @endphp
                         @if(count($rowMessages))

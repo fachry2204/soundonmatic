@@ -9,6 +9,16 @@ final class ReadableReleaseError
         return preg_replace('/\bsoundon\b/i', 'Aggregator', (string) $text);
     }
 
+    public static function soundfreshMessage(?string $message): string
+    {
+        if (str_contains((string) $message, 'SOUNDFRESH_UI_CHANGED:reject_reason_input')) {
+            return 'Reject belum terkirim: sistem belum menemukan kolom alasan yang bisa diisi pada dialog Reject Soundfresh. '
+                .'Rilisan belum dikonfirmasi ditolak. Gunakan versi perbaikan, buka Detail, lalu pilih Reject di Soundfresh. Tombol Retry menjalankan ulang proses upload.';
+        }
+
+        return self::displayText($message);
+    }
+
     public static function explain(?string $code, ?string $message): array
     {
         return array_map(self::displayText(...), self::explainOriginal($code, $message));
